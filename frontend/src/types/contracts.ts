@@ -44,6 +44,13 @@ export interface Option {
   speak_prompt: string;
   /** 실제 제시 순서. 순서 효과 보정을 위해 랜덤화 결과를 기록 (OPEN_QUESTIONS Q1). */
   order_index: number;
+  /**
+   * ★value_axis의 어느 극인가. 예: "성장".
+   *
+   * 라벨은 고민마다 다르므로("이직한다" / "대학원 간다") 라벨을 세면 패턴이 안 보인다.
+   * 같은 극으로 모아야 [8] 가치관 지도가 "성장 4회, 안정 1회"가 된다.
+   */
+  axis_side: string | null;
 }
 
 export interface Decision {
@@ -270,10 +277,32 @@ export interface Retrospective {
 export interface ValueAxisEntry {
   axis: string;
   session_ids: string[];
+  /** 관찰만. "5번의 기록 중 — 성장 4회, 안정 1회". 규정하지 않는다. */
   lean_pattern: string;
 }
 
-/** 가치관 지도 (2층). 축 추출 방식은 OPEN_QUESTIONS Q5. */
+/** 가치관 지도 (2층). `GET /value-map`. 축 추출 방식은 OPEN_QUESTIONS Q5. */
 export interface ValueMap {
   axes: ValueAxisEntry[];
+}
+
+export interface ConvictionGroup {
+  /** 그때 자기 입으로 말한 쪽대로 골랐는가. */
+  followed_intuition: boolean;
+  count: number;
+  average_satisfaction: number | null;
+}
+
+/**
+ * 확신 (3층). `GET /conviction`.
+ *
+ * ★결론을 내지 않는다. 자기 진술대로 고른 경우와 아닌 경우의 만족도를 나란히 놓을
+ * 뿐이고, 그 대조에서 무엇을 읽을지는 사용자가 정한다.
+ * 비교 기준이 우리 판정이 아니라 `annotation.self_lean_option_id`인 이유도 같다.
+ */
+export interface Conviction {
+  total_retrospectives: number;
+  groups: ConvictionGroup[];
+  /** 관찰 한 문장. 판정이 아니다. */
+  note: string;
 }

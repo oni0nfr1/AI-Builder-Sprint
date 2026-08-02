@@ -44,21 +44,37 @@ def build_value_map() -> ValueMap:
 def _summarize(entries: list[tuple[Session, Decision]]) -> str:
     """이 축에서 사용자가 반복적으로 어느 쪽을 택했나.
 
+    ★세는 것은 선택지 라벨이 아니라 `axis_side`(축의 극)다.
+    라벨은 고민마다 다르다("이직한다" / "대학원 간다" / "사이드를 시작한다").
+    라벨을 세면 "1회, 1회, 1회"가 나올 뿐 축을 가로지르는 패턴이 보이지 않는다.
+
     관찰만 서술한다 — "당신은 성장을 중시하는 사람입니다" 같은 규정은 하지 않는다.
     그건 사용자가 지도를 보고 스스로 내릴 결론이다.
     """
     counts: dict[str, int] = defaultdict(int)
+    unlabelled = 0
     for session, decision in entries:
         chosen = session.annotation.self_lean_option_id if session.annotation else None
         if chosen is None:
             continue
         for option in decision.options:
-            if option.id == chosen:
-                counts[option.label] += 1
+            if option.id != chosen:
+                continue
+            if option.axis_side:
+                counts[option.axis_side] += 1
+            else:
+                unlabelled += 1
 
     if not counts:
+        if unlabelled:
+            # 기록은 있는데 축을 나누지 못한 경우다. "부족하다"고 하면 사실과 다르다.
+            return f"기록 {unlabelled}건이 있지만 축의 양쪽을 나누지 못했어요."
         return "아직 기록이 부족해요."
 
     total = sum(counts.values())
-    parts = [f"{label} {n}회" for label, n in sorted(counts.items(), key=lambda x: -x[1])]
-    return f"{total}번의 기록 중 — " + ", ".join(parts)
+    parts = [f"{side} {n}회" for side, n in sorted(counts.items(), key=lambda x: -x[1])]
+    summary = f"{total}번의 기록 중 — " + ", ".join(parts)
+    if unlabelled:
+        # 극을 못 붙인 기록은 조용히 빼지 않고 밝힌다. 지도의 신뢰도는 사용자가 판단한다.
+        summary += f" (축을 나누지 못한 기록 {unlabelled}건 제외)"
+    return summary

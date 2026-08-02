@@ -72,8 +72,14 @@ Option {
   imagine_prompt: string     // "현 직장에 남은 6개월 뒤의 당신을 상상해보세요"
   speak_prompt: string       // "그때 떠오르는 걸 말해주세요"
   order_index: int           // ★실제 제시 순서 (랜덤화 결과를 기록) — Q1 순서 효과
+  axis_side: string | null   // ★value_axis의 어느 극인가: "성장" — [8]이 성립하는 조건
 }
 ```
+
+**`axis_side`가 없으면 [8] 가치관 지도가 성립하지 않는다.** 라벨은 고민마다 다르다
+("이직한다" / "대학원 간다" / "사이드를 시작한다"). 라벨을 세면 "1회, 1회, 1회"가
+나올 뿐이고, 같은 축의 같은 극으로 모아야 "성장 4회, 안정 1회"가 된다.
+`value_axis`가 `"안정 vs 성장"`이면 `axis_side`는 그중 한 쪽 문자열이어야 한다.
 
 **주의**: `imagine_prompt`/`speak_prompt`는 LLM이 생성한다. 여기에 **어느 쪽을 권하는 뉘앙스가 섞이면 안 된다** — 두 선택지의 프롬프트는 구조적으로 대칭이어야 한다.
 
@@ -323,12 +329,29 @@ Retrospective {
 }
 ```
 
-**확신(3층)의 계산**: `annotation.self_lean_option_id` == `retrospective.chosen_option_id` 인 경우들의 만족도 분포 vs 아닌 경우들의 분포.
-→ "내 직관을 따랐을 때 실제로 더 만족했는가"
-
 ```ts
-ValueMap {                          // 가치관 지도 (2층)
-  axes: { axis: string, sessions: string[], lean_pattern: string }[]
+ValueMap {                          // 가치관 지도 (2층)   GET /value-map
+  axes: { axis: string, session_ids: string[], lean_pattern: string }[]
 }
 ```
 `Decision.value_axis`를 가로질러 집계한다. 자세한 축 추출 방식은 `OPEN_QUESTIONS.md` Q5.
+
+**세는 것은 선택지 라벨이 아니라 `Option.axis_side`(축의 극)다.** 라벨은 고민마다 다르므로 라벨을 세면 "1회, 1회, 1회"가 나올 뿐이다. 극을 못 붙인 기록은 조용히 빼지 않고 `lean_pattern`에 몇 건 제외됐는지 밝힌다 — 지도의 신뢰도는 사용자가 판단한다.
+
+```ts
+Conviction {                        // 확신 (3층)         GET /conviction
+  total_retrospectives: number
+  groups: {
+    followed_intuition: boolean     // 그때 말한 쪽대로 골랐는가
+    count: number
+    average_satisfaction: number | null
+  }[]
+  note: string                      // 관찰 한 문장. 판정이 아니다
+}
+```
+
+**확신(3층)의 계산**: `annotation.self_lean_option_id` == `retrospective.chosen_option_id` 인 경우들의 만족도 vs 아닌 경우들의 만족도.
+
+⚠️ 비교 기준은 **우리 판정(`verdict.preference.lean`)이 아니라 사용자가 자기 입으로 말한 것**이다. 우리 판정과 맞춰보면 "우리 예측이 맞았다"는 이야기가 되고, 그건 이 제품이 아니다. 자기가 말한 것만이 자기 기준점이 된다.
+
+⚠️ `note`는 **결론을 내지 않는다.** "당신의 직관은 정확합니다"는 결정 대행이며 절대 규칙 ①② 위반이다. 두 숫자를 나란히 놓을 뿐이고, 거기서 무엇을 읽을지는 사용자가 정한다.

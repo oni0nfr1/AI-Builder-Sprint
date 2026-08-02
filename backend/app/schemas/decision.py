@@ -30,6 +30,15 @@ class Option(BaseModel):
     order_index: int = 0
     """실제 제시 순서. 순서 효과 보정을 위해 랜덤화 결과를 기록한다 (OPEN_QUESTIONS Q1)."""
 
+    axis_side: str | None = None
+    """이 선택지가 `Decision.value_axis`의 어느 극에 해당하는가. 예: "성장".
+
+    ★[8] 가치관 지도가 성립하는 조건이다.
+    라벨은 고민마다 다르다("이직한다" / "대학원 간다" / "사이드를 시작한다").
+    라벨을 세면 "1회, 1회, 1회"가 나올 뿐 축을 가로지르는 패턴이 안 보인다.
+    같은 축의 같은 극으로 모아야 "성장 4회, 안정 1회"가 된다.
+    """
+
 
 class Decision(BaseModel):
     id: str = Field(default_factory=_uuid)
