@@ -26,10 +26,25 @@ const ROI_LANDMARKS: { name: string; indices: number[]; inset: number }[] = [
   { name: 'cheekR', indices: [280, 330, 346, 347, 352, 411, 425, 266], inset: 0.25 },
 ];
 
-const SAMPLE_CANVAS_SIZE = 64;
+/**
+ * ROI 하나를 그려 넣을 타일 크기.
+ *
+ * 여러 ROI를 한 캔버스에 나란히 그리고 **getImageData를 한 번만** 부른다.
+ * ROI마다 따로 읽으면 GPU→CPU 동기화가 그만큼 늘어 프레임을 흘린다
+ * (실측: ROI 3개로 늘렸더니 29fps → 17fps).
+ */
+const TILE = 32;
 
 /** 이보다 작으면 얼굴이 멀거나 검출이 흔들린 것이다. 평균에 넣으면 잡음만 는다. */
 const MIN_ROI_PIXELS = 12;
+
+/**
+ * 얼굴 검출 간격(ms). 매 프레임 돌리지 않는다.
+ *
+ * MediaPipe 검출은 프레임당 수십 ms가 들어 30fps 예산(33ms)을 혼자 잡아먹는다.
+ * 상상 구간에는 점을 응시하며 정지해 있으므로 이 정도 간격이면 ROI가 어긋나지 않는다.
+ */
+const DETECT_INTERVAL_MS = 120;
 
 export interface RoiQuality {
   /** ROI 평균 밝기 0~255. 너무 어둡거나 포화되면 신호가 안 나온다. */
@@ -157,10 +172,15 @@ export class RoiSampler {
   private landmarker: FaceLandmarker | null = null;
   private lastQuality: RoiQuality = { brightness: 0, faceDetected: false, roiCount: 0 };
 
+  // 검출 결과 캐시 — 매 프레임 MediaPipe를 돌리면 프레임을 흘린다.
+  private cachedRects: RoiRect[] = [];
+  private cachedFromFace = false;
+  private lastDetectMs = Number.NEGATIVE_INFINITY;
+
   // recordRgbSeries가 프레임 전진 여부를 보려면 요소에 접근할 수 있어야 한다.
   private constructor(readonly video: HTMLVideoElement) {
-    this.canvas.width = SAMPLE_CANVAS_SIZE;
-    this.canvas.height = SAMPLE_CANVAS_SIZE;
+    this.canvas.width = TILE * ROI_LANDMARKS.length;
+    this.canvas.height = TILE;
     const ctx = this.canvas.getContext('2d', { willReadFrequently: true });
     if (!ctx) throw new Error('캔버스를 만들 수 없습니다.');
     this.ctx = ctx;
@@ -196,62 +216,91 @@ export class RoiSampler {
     if (!video.videoWidth || !video.videoHeight) return null;
 
     const { rects, fromFace } = this.resolveRois(timestampMs);
-    if (rects.length === 0) return null;
+    const usable = rects.filter(
+      (rect) => rect.width >= MIN_ROI_PIXELS && rect.height >= MIN_ROI_PIXELS,
+    );
+    if (usable.length === 0) return null;
+
+    // ① 모든 ROI를 한 캔버스에 나란히 그린다.
+    usable.forEach((rect, index) => {
+      this.ctx.drawImage(
+        this.video,
+        rect.x,
+        rect.y,
+        rect.width,
+        rect.height,
+        index * TILE,
+        0,
+        TILE,
+        TILE,
+      );
+    });
+
+    // ② 읽기는 한 번만. 여기가 프레임 예산을 가장 많이 쓴다.
+    const { data } = this.ctx.getImageData(0, 0, usable.length * TILE, TILE);
+    const rowWidth = usable.length * TILE;
 
     let r = 0;
     let g = 0;
     let b = 0;
     let totalWeight = 0;
-    let used = 0;
 
-    for (const rect of rects) {
-      const mean = this.meanOf(rect);
-      if (mean === null) continue;
+    usable.forEach((rect, index) => {
+      let tr = 0;
+      let tg = 0;
+      let tb = 0;
+      for (let y = 0; y < TILE; y += 1) {
+        for (let x = 0; x < TILE; x += 1) {
+          const offset = (y * rowWidth + index * TILE + x) * 4;
+          tr += data[offset];
+          tg += data[offset + 1];
+          tb += data[offset + 2];
+        }
+      }
+      const pixels = TILE * TILE;
+      // 넓이로 가중한다 — 전체 피부 픽셀을 한꺼번에 평균한 것과 같아지도록.
       const weight = rect.width * rect.height;
-      r += mean.r * weight;
-      g += mean.g * weight;
-      b += mean.b * weight;
+      r += (tr / pixels) * weight;
+      g += (tg / pixels) * weight;
+      b += (tb / pixels) * weight;
       totalWeight += weight;
-      used += 1;
-    }
-    if (totalWeight <= 0) return null;
+    });
 
+    if (totalWeight <= 0) return null;
     r /= totalWeight;
     g /= totalWeight;
     b /= totalWeight;
 
-    this.lastQuality = { brightness: (r + g + b) / 3, faceDetected: fromFace, roiCount: used };
+    this.lastQuality = {
+      brightness: (r + g + b) / 3,
+      faceDetected: fromFace,
+      roiCount: usable.length,
+    };
     return { r, g, b };
   }
 
-  private meanOf(rect: RoiRect): { r: number; g: number; b: number } | null {
-    if (rect.width < MIN_ROI_PIXELS || rect.height < MIN_ROI_PIXELS) return null;
-    this.ctx.drawImage(
-      this.video,
-      rect.x,
-      rect.y,
-      rect.width,
-      rect.height,
-      0,
-      0,
-      SAMPLE_CANVAS_SIZE,
-      SAMPLE_CANVAS_SIZE,
-    );
-    const { data } = this.ctx.getImageData(0, 0, SAMPLE_CANVAS_SIZE, SAMPLE_CANVAS_SIZE);
-    let r = 0;
-    let g = 0;
-    let b = 0;
-    const pixels = data.length / 4;
-    for (let i = 0; i < data.length; i += 4) {
-      r += data[i];
-      g += data[i + 1];
-      b += data[i + 2];
+  /**
+   * 얼굴을 찾으면 이마 + 양 볼, 못 찾으면 화면 중앙 상단 고정 영역 하나.
+   *
+   * 검출 결과는 DETECT_INTERVAL_MS 동안 재사용한다. 매 프레임 MediaPipe를 돌리면
+   * 30fps 예산을 혼자 잡아먹어 프레임을 흘린다 — 그러면 샘플 수가 줄어
+   * 다중 ROI로 얻은 신호 이득이 그대로 상쇄된다.
+   */
+  private resolveRois(timestampMs: number): { rects: RoiRect[]; fromFace: boolean } {
+    if (
+      this.cachedRects.length > 0 &&
+      timestampMs - this.lastDetectMs < DETECT_INTERVAL_MS
+    ) {
+      return { rects: this.cachedRects, fromFace: this.cachedFromFace };
     }
-    return { r: r / pixels, g: g / pixels, b: b / pixels };
+    const resolved = this.detectRois(timestampMs);
+    this.lastDetectMs = timestampMs;
+    this.cachedRects = resolved.rects;
+    this.cachedFromFace = resolved.fromFace;
+    return resolved;
   }
 
-  /** 얼굴을 찾으면 이마 + 양 볼, 못 찾으면 화면 중앙 상단 고정 영역 하나. */
-  private resolveRois(timestampMs: number): { rects: RoiRect[]; fromFace: boolean } {
+  private detectRois(timestampMs: number): { rects: RoiRect[]; fromFace: boolean } {
     const width = this.video.videoWidth;
     const height = this.video.videoHeight;
 
