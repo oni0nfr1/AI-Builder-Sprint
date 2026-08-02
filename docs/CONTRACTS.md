@@ -98,7 +98,7 @@ Capture {
 
   rgb_series: RgbSample[] | null     // phase="imagine"에서 필수 (심박)
   audio_base64: string | null        // phase="speak"에서 필수. ★16-bit PCM WAV
-  transcript: string | null          // 브라우저 STT 결과
+  transcript: string | null          // 항상 null로 올라온다. 서버가 [5] 직전에 채운다
 
   fps: number                        // rgb_series 실측 프레임레이트
   duration_sec: number

@@ -196,13 +196,21 @@ AI의 대두 → 인간에게 희소해진 능력은 "결정력"
 |---|---|---|
 | 프론트 | React + Vite (**웹**) | 모바일은 시간상 부적합. `getUserMedia`로 오디오·비디오 동시 |
 | 얼굴 ROI | MediaPipe Face Mesh (브라우저) | **RGB 평균 시계열 숫자만 서버로 전송** — 영상 원본이 서버에 안 올라간다 |
-| STT | 브라우저 Web Speech API | Chrome 한국어 지원. 부족하면 Whisper로 교체 |
+| STT | **faster-whisper** (백엔드) | 브라우저 Web Speech는 오디오를 **구글 서버로 보낸다** — 아래 참조 |
 | 백엔드 | FastAPI + numpy/scipy | rPPG 신호처리, openSMILE, librosa |
 | 음성 특징 | **openSMILE** (eGeMAPS 88) | Essentia에는 jitter/shimmer/HNR이 **없다** → 대체 불가 (`docs/OPEN_QUESTIONS.md` Q2) |
 | LLM | **Upstage Solar** | 대회 가점 +5. `[0]` 파싱, `[5]` 리포트 |
 | DB | SQLite | MVP 충분. 스키마는 확장 가능하게 |
 
 **프라이버시는 기능이 아니라 전제다.** 몸이 흘리는 신호는 가장 사적인 데이터이고, 그 신뢰가 없으면 사용자는 진짜 고민을 말하지 않는다. 영상 원본을 서버에 보내지 않는 설계를 지킬 것.
+
+> ⚠️ **"브라우저 API = 로컬 처리"가 아니다.**
+> 초기 설계는 STT에 브라우저 Web Speech API를 썼다. MediaPipe처럼 브라우저 안에서
+> 처리될 거라 **확인 없이 가정했는데**, Chrome은 오디오를 구글 서버로 보내 인식한다.
+> 영상은 안 보내려고 공들여놓고 음성은 밝히지도 않은 채 제3자에게 보내고 있었다.
+> 걷어내고 백엔드 `faster-whisper`로 바꿨다 (`docs/OPEN_QUESTIONS.md` Q7).
+>
+> **새 브라우저 API를 넣을 때는 데이터가 어디로 가는지 먼저 확인할 것.**
 
 ---
 

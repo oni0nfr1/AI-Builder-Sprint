@@ -16,7 +16,6 @@ import {
 import { AudioRecorder, requestMedia } from '../lib/audio';
 import { RoiSampler, recordRgbSeries, type RoiQuality } from '../lib/faceRoi';
 import { buildSteps, type CaptureStep } from '../lib/sessionFlow';
-import { Transcriber } from '../lib/stt';
 import type { Annotation, Decision, Report } from '../types/contracts';
 
 export type FlowPhase =
@@ -162,20 +161,13 @@ export function useSessionFlow(videoRef: React.RefObject<HTMLVideoElement>) {
 
     // 발화 구간 — 음성만 잰다. ROI 품질은 여기서 갱신하지 않는다(측정하지 않으므로).
     const recorder = new AudioRecorder(stream);
-    const transcriber = new Transcriber();
     await recorder.start();
-    transcriber.start();
 
     await countdown(step.durationSec, (elapsedSec) =>
       setState((prev) => ({ ...prev, elapsedSec })),
     );
 
     const audioBase64 = await recorder.stop();
-    const transcript = await transcriber.stop();
-    if (!transcript && transcriber.lastError) {
-      // 인식 실패는 치명적이지 않다(판정은 음향 특징에서 나온다). 다만 왜 비었는지는 남긴다.
-      console.warn(`STT 결과 없음 — ${transcriber.lastError}`);
-    }
 
     await uploadCapture(sessionId, {
       session_id: sessionId,
@@ -184,7 +176,15 @@ export function useSessionFlow(videoRef: React.RefObject<HTMLVideoElement>) {
       phase: 'speak',
       rgb_series: null,
       audio_base64: audioBase64,
-      transcript,
+      /*
+       * ★브라우저에서 인식하지 않는다. 서버가 [5] 직전에 채운다.
+       *
+       * Web Speech API 를 쓰다 걷어냈다. 브라우저 API 라서 로컬에서 처리할 거라
+       * 가정했는데, Chrome 은 오디오를 구글 서버로 보내 인식한다. 영상 원본을
+       * 서버에 안 보내려고 공들여놓고 음성은 밝히지도 않은 채 제3자에게
+       * 보내고 있었다 (OPEN_QUESTIONS Q7).
+       */
+      transcript: null,
       fps: 0,
       duration_sec: step.durationSec,
     });
