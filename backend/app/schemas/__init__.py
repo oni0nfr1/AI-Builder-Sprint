@@ -11,7 +11,7 @@ from app.schemas.analysis import (
     StateVerdict,
     Verdict,
 )
-from app.schemas.capture import Capture, Phase, RgbSample, Segment
+from app.schemas.capture import Capture, Phase, RgbSample, RppgMeasurement, Segment
 from app.schemas.common import (
     HR_METRICS,
     VOICE_METRICS,
@@ -53,6 +53,7 @@ __all__ = [
     # [1]
     "Capture",
     "RgbSample",
+    "RppgMeasurement",
     "Segment",
     "Phase",
     # [2]

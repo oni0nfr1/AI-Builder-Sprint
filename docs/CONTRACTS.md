@@ -96,7 +96,8 @@ Capture {
   option_id: string | null           // segment="option"일 때만
   phase: "imagine" | "speak"
 
-  rgb_series: RgbSample[] | null     // phase="imagine"에서 필수 (심박)
+  rgb_series: RgbSample[] | null     // 레거시 서버 rPPG 입력
+  rppg_measurement: RppgMeasurement | null // 새 브라우저 rPPG 요약값
   audio_base64: string | null        // phase="speak"에서 필수. ★16-bit PCM WAV
   transcript: string | null          // 항상 null로 올라온다. 서버가 [5] 직전에 채운다
 
@@ -110,9 +111,23 @@ RgbSample {
   g: number
   b: number
 }
+
+RppgMeasurement {
+  source: "rppg-web"
+  version: string
+  bpm: number
+  confidence: number              // 0~1
+  signal_quality: number          // 0~1
+  agreement: number | null        // estimator 간 일치도
+  reason_codes: string[]
+  stable_sample_count: number
+}
 ```
 
-**프라이버시 전제** — 영상 프레임 원본은 서버로 보내지 않는다. 브라우저에서 MediaPipe로 얼굴 ROI를 잡고 **RGB 평균 숫자만** 전송한다.
+**프라이버시 전제** — 영상 프레임 원본은 서버로 보내지 않는다. 새 클라이언트는
+브라우저의 `rppg-web`에서 처리한 **BPM과 품질 요약만** 전송한다. 기존
+`rgb_series + fps`는 저장 데이터와 병렬 브랜치 호환을 위한 임시 폴백이며,
+`rppg_measurement`가 있으면 서버는 이를 우선 사용한다.
 
 **오디오 포맷** — `audio_base64`는 **16-bit PCM WAV**여야 한다. `MediaRecorder` 기본 출력(WebM/Opus)은 서버에서 ffmpeg 없이 못 읽으므로, 브라우저가 Web Audio API로 디코드한 뒤 WAV로 인코딩해서 보낸다. 서버에 미디어 코덱 의존성을 만들지 않기 위한 선택이다.
 
@@ -160,7 +175,11 @@ VoiceFeatures {
 HeartRateFeatures {
   bpm: number
   confidence: number               // 0~1  ★항상 반환
-  snr_db: number
+  snr_db: number | null             // 레거시 서버 RGB 분석에서만
+  source: "server_rgb" | "rppg-web"
+  signal_quality: number | null
+  agreement: number | null
+  reason_codes: string[]
   hrv_rmssd: number | null         // ★MVP는 항상 null. 웨어러블 연동 시 채움
 }
 ```

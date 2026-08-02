@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { CaptureStage } from './components/CaptureStage';
 import { useSessionFlow } from './hooks/useSessionFlow';
-import { describeQuality } from './lib/faceRoi';
 import { totalDurationSec } from './lib/sessionFlow';
 import { AccumulationView } from './screens/AccumulationView';
 import { DecisionInput } from './screens/DecisionInput';
@@ -25,7 +24,7 @@ export default function App() {
   const ready = state.phase === 'ready';
   const currentStep = capturing ? state.steps[state.stepIndex] : null;
   // 준비 화면에서도 신호를 보여준다 — 어두운 채로 시작하면 심박이 통째로 버려진다.
-  const preflight = ready ? describeQuality(state.quality) : null;
+  const preflight = ready ? state.quality : null;
 
   return (
     <main className="app">
@@ -79,11 +78,8 @@ export default function App() {
             정답을 맞히는 시간이 아니에요. 떠오르는 대로 두시면 됩니다.
           </p>
           {preflight && (
-            <p className={`signal ${preflight.ok ? 'signal--ok' : 'signal--warn'}`}>
-              {preflight.ok ? '●' : '○'} {preflight.message}
-              {state.quality.roiCount > 0 && (
-                <> · 측정 영역 {state.quality.roiCount}곳</>
-              )}
+            <p className={`signal ${preflight.ready ? 'signal--ok' : 'signal--warn'}`}>
+              {preflight.ready ? '●' : '○'} {preflight.message}
             </p>
           )}
           {/*
@@ -92,7 +88,7 @@ export default function App() {
             사용자가 알고 하도록 버튼 문구로 알린다.
           */}
           <button className="button" type="button" onClick={runAll}>
-            {preflight?.ok ? '시작' : '이대로 시작'}
+            {preflight?.ready ? '시작' : '이대로 시작'}
           </button>
         </div>
       )}

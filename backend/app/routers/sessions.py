@@ -64,7 +64,8 @@ async def create_session(req: SessionCreateRequest) -> ApiResponse[Session]:
 async def upload_capture(session_id: str, capture: Capture) -> ApiResponse[Features]:
     """[1] 캡처 수신 → [2] 특징 추출 즉시 실행.
 
-    영상 원본은 받지 않는다. 브라우저가 얼굴 ROI의 RGB 평균 시계열만 보낸다.
+    영상 원본은 받지 않는다. 새 클라이언트는 브라우저에서 계산한 rPPG 요약을
+    보내고, 기존 클라이언트의 RGB 평균 시계열은 호환 경로로 처리한다.
     """
     session = _load_session(session_id)
     capture.session_id = session_id

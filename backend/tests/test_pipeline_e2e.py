@@ -68,6 +68,47 @@ def _post_capture(client, session_id, *, segment, option_id, phase, f0=None, bpm
     return response.json()
 
 
+def _create_decision_and_session(client):
+    decision = client.post(
+        "/decisions", json={"raw_input": "새 프로젝트를 시작한다 vs 유지한다"}
+    ).json()["data"]
+    session = client.post(
+        "/sessions", json={"decision_id": decision["id"]}
+    ).json()["data"]
+    return decision, session
+
+
+def _client_rppg_body(
+    session_id: str,
+    *,
+    segment: str = "option",
+    option_id: str | None = "option-1",
+    bpm: float = 72.5,
+    confidence: float = 0.76,
+) -> dict:
+    return {
+        "session_id": session_id,
+        "segment": segment,
+        "option_id": option_id,
+        "phase": "imagine",
+        "rgb_series": None,
+        "rppg_measurement": {
+            "source": "rppg-web",
+            "version": "0.14.0",
+            "bpm": bpm,
+            "confidence": confidence,
+            "signal_quality": 0.81,
+            "agreement": 0.9,
+            "reason_codes": [],
+            "stable_sample_count": 8,
+        },
+        "audio_base64": None,
+        "transcript": None,
+        "fps": 0.0,
+        "duration_sec": 15.0,
+    }
+
+
 def test_full_pipeline(client) -> None:
     assert client.get("/health").json()["data"]["status"] == "up"
 
@@ -171,3 +212,79 @@ def test_validation_error_envelope(client) -> None:
     response = client.post("/decisions", json={})
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "validation_error"
+
+
+def test_client_rppg_capture_contract_and_precedence(client) -> None:
+    """클라이언트 측정값을 보존하고 레거시 RGB보다 우선한다."""
+    decision, session = _create_decision_and_session(client)
+    body = _client_rppg_body(session["id"], option_id=decision["options"][0]["id"])
+    # 두 입력이 함께 오더라도 명시된 새 계약이 우선되어야 한다.
+    body["rgb_series"] = _rgb_series(150.0)
+    body["fps"] = 30.0
+
+    response = client.post(f"/sessions/{session['id']}/captures", json=body)
+
+    assert response.status_code == 200, response.text
+    hr = response.json()["data"]["hr"]
+    assert hr["bpm"] == 72.5
+    assert hr["confidence"] == 0.76
+    assert hr["source"] == "rppg-web"
+    assert hr["snr_db"] is None
+    assert hr["signal_quality"] == 0.81
+    assert hr["agreement"] == 0.9
+
+
+@pytest.mark.parametrize(
+    ("field", "invalid_value"),
+    [
+        ("source", "unknown"),
+        ("bpm", 0.0),
+        ("confidence", 1.1),
+        ("signal_quality", -0.1),
+        ("agreement", 1.1),
+        ("stable_sample_count", 0),
+    ],
+)
+def test_client_rppg_capture_rejects_invalid_measurement(
+    client, field: str, invalid_value
+) -> None:
+    decision, session = _create_decision_and_session(client)
+    body = _client_rppg_body(session["id"], option_id=decision["options"][0]["id"])
+    body["rppg_measurement"][field] = invalid_value
+
+    response = client.post(f"/sessions/{session['id']}/captures", json=body)
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
+
+
+def test_low_confidence_client_rppg_is_excluded_from_analysis(client) -> None:
+    """API로 받은 저신뢰 심박도 기존 confidence floor를 우회하지 못한다."""
+    decision, session = _create_decision_and_session(client)
+    session_id = session["id"]
+    option_a, option_b = decision["options"]
+
+    captures = [
+        _client_rppg_body(
+            session_id,
+            segment="neutral",
+            option_id=None,
+            bpm=72.0,
+            confidence=0.2,
+        ),
+        _client_rppg_body(
+            session_id, option_id=option_a["id"], bpm=70.0, confidence=0.2
+        ),
+        _client_rppg_body(
+            session_id, option_id=option_b["id"], bpm=90.0, confidence=0.2
+        ),
+    ]
+    for body in captures:
+        response = client.post(f"/sessions/{session_id}/captures", json=body)
+        assert response.status_code == 200, response.text
+
+    analyzed = client.post(f"/sessions/{session_id}/analyze")
+    assert analyzed.status_code == 200, analyzed.text
+    stored = client.get(f"/sessions/{session_id}").json()["data"]
+    assert "bpm" not in stored["delta"]["preference"]["per_metric"]
+    assert "bpm" in stored["verdict"]["excluded_metrics"]
