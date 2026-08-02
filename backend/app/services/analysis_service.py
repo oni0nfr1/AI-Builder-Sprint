@@ -32,6 +32,7 @@ from app.schemas.capture import Segment
 from app.schemas.common import HR_METRICS, MetricKey
 from app.schemas.decision import Decision
 from app.schemas.session import Session
+from app.services.korean import josa
 
 # ─────────────────────────────────────────────────────────── 부호 테이블
 
@@ -81,6 +82,18 @@ AROUSAL_THRESHOLD = 0.10
 
 CONTRADICTION_THRESHOLD = 0.08
 """음성과 심박이 각각 이 크기 이상으로 반대 방향일 때 contradictory."""
+
+EXTREME_DELTA = 0.8
+"""대칭 상대차가 이보다 크면 측정 조건 차이를 의심한다.
+
+`_symmetric_ratio`의 최대 크기는 ±2다. 0.8이면 한쪽이 다른 쪽의 2.2배라는 뜻인데,
+사람의 선호 차이가 한 세션 안에서 이만큼 벌어지기는 어렵다. 마이크와의 거리가
+달랐거나 한쪽에서 거의 말하지 않았을 때 이렇게 된다.
+(실측: loudness_mean -0.80, f0_std -1.10 이 동시에 나오고 pause_ratio 는 0.58이었다.)
+"""
+
+EXTREME_DELTA_COUNT = 2
+"""이 개수 이상이면 두 녹음의 조건 자체가 달랐다고 보고 신뢰도를 깎는다."""
 
 _EPSILON = 1e-9
 
@@ -172,6 +185,16 @@ def _weighted_score(
     return sum(contributions.values()) / total_weight, contributions
 
 
+def _looks_like_condition_mismatch(per_metric: dict[MetricKey, float]) -> bool:
+    """여러 지표가 동시에 극단으로 벌어졌는가.
+
+    하나쯤 크게 튀는 건 진짜 신호일 수 있다. 여러 개가 한꺼번에 극단이면
+    두 녹음의 조건 자체가 달랐다고 보는 편이 자연스럽다.
+    """
+    extreme = sum(1 for value in per_metric.values() if abs(value) >= EXTREME_DELTA)
+    return extreme >= EXTREME_DELTA_COUNT
+
+
 def _judge_state(delta: Delta) -> StateVerdict:
     if not delta.state.default_available or not delta.state.per_metric:
         return StateVerdict(label=StateLabel.UNKNOWN, magnitude=0.0)
@@ -241,6 +264,9 @@ def _judge_preference(
         confidence *= 0.6
     if not (has_voice and has_hr):
         confidence *= 0.75
+    if _looks_like_condition_mismatch(per_metric):
+        # 선호가 아니라 녹음 조건이 달랐을 가능성이 크다. 판정은 유지하되 덜 믿는다.
+        confidence *= 0.6
 
     return PreferenceVerdict(
         lean=lean,
@@ -259,7 +285,8 @@ def _order_note(decision: Decision) -> str | None:
     ordered = sorted(decision.options, key=lambda o: o.order_index)
     if len(ordered) < 2:
         return None
-    return f"'{ordered[0].label}'을(를) 먼저 말씀하셨어요."
+    label = ordered[0].label
+    return f"'{label}'{josa(label, '을/를')} 먼저 말씀하셨어요."
 
 
 def _excluded_metrics(delta: Delta) -> list[MetricKey]:

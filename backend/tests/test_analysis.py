@@ -8,9 +8,11 @@ from __future__ import annotations
 
 from app.schemas.analysis import Lean, StateLabel
 from app.schemas.capture import Capture, Phase, Segment
+from app.schemas.common import MetricKey
 from app.schemas.decision import Decision, Option
 from app.schemas.features import Features, HeartRateFeatures, VoiceFeatures
 from app.schemas.session import Session
+from app.services import analysis_service
 from app.services.analysis_service import compute_delta, judge
 
 
@@ -273,3 +275,43 @@ def test_order_note_reflects_presentation_order() -> None:
     _, verdict = _analyze(session, decision)
     assert verdict.order_note is not None
     assert "남는다" in verdict.order_note
+
+
+def test_condition_mismatch_lowers_confidence(monkeypatch) -> None:
+    """여러 지표가 동시에 극단이면 선호가 아니라 녹음 조건 차이를 의심한다.
+
+    실측에서 loudness -0.80, f0_std -1.10 이 한꺼번에 나온 세션이 있었다.
+    마이크 거리가 달랐거나 한쪽에서 거의 말하지 않으면 이렇게 된다 —
+    사람의 선호가 한 세션 안에서 이만큼 벌어지기는 어렵다.
+
+    극단 세션과 보통 세션을 맞대면 안 된다. 극단 쪽은 magnitude 자체가 커서
+    벌점을 먹고도 신뢰도가 더 높게 나온다. **같은 세션**에서 벌점 유무만 비교한다.
+    """
+    decision = _decision()
+    session = _session(
+        a_voice=_voice(f0=230.0, rate=4.8, loudness=120.0),
+        a_hr=_hr(70.0),
+        b_voice=_voice(f0=180.0, rate=0.9, loudness=8.0),
+        b_hr=_hr(84.0),
+        default_voice=_voice(),
+        default_hr=_hr(72.0),
+    )
+    _, penalised = _analyze(session, decision)
+
+    # 임계값만 올려 벌점을 끈다 — 나머지 계산은 완전히 동일하다.
+    monkeypatch.setattr(analysis_service, "EXTREME_DELTA", 99.0)
+    _, unpenalised = _analyze(session, decision)
+
+    assert penalised.preference.lean is unpenalised.preference.lean
+    assert penalised.preference.magnitude == unpenalised.preference.magnitude
+    assert penalised.preference.confidence < unpenalised.preference.confidence
+
+
+def test_single_extreme_metric_is_not_penalised() -> None:
+    """하나쯤 크게 튀는 건 진짜 신호일 수 있다. 여러 개가 동시일 때만 의심한다."""
+    assert not analysis_service._looks_like_condition_mismatch(
+        {MetricKey.LOUDNESS_MEAN: -0.9}
+    )
+    assert analysis_service._looks_like_condition_mismatch(
+        {MetricKey.LOUDNESS_MEAN: -0.9, MetricKey.F0_STD: -1.1}
+    )
