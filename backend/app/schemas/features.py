@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 from app.schemas.common import MetricKey
@@ -41,7 +43,13 @@ class HeartRateFeatures(BaseModel):
     CONFIDENCE_FLOOR 미만이면 [4] 판정에서 심박 축을 제외하고 음성만으로 간다.
     """
 
-    snr_db: float = 0.0
+    snr_db: float | None = None
+    """서버의 레거시 RGB 분석에서만 산출한다."""
+
+    source: Literal["server_rgb", "rppg-web"] = "server_rgb"
+    signal_quality: float | None = Field(default=None, ge=0.0, le=1.0)
+    agreement: float | None = Field(default=None, ge=0.0, le=1.0)
+    reason_codes: list[str] = Field(default_factory=list)
 
     hrv_rmssd: float | None = None
     """MVP(웹캠 rPPG)에서는 항상 None. 웨어러블 연동 시 채운다."""

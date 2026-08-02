@@ -115,7 +115,6 @@ RppgMeasurement {
   agreement: number | null        // estimator 간 일치도
   reason_codes: string[]
   stable_sample_count: number
-  duration_sec: number
 }
 ```
 

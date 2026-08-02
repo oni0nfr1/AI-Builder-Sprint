@@ -1,13 +1,15 @@
 """[1] 캡처 — 브라우저에서 올라오는 원자료.
 
 프라이버시 전제: 영상 프레임 원본은 서버로 보내지 않는다.
-브라우저에서 MediaPipe로 얼굴 ROI를 잡고 RGB 평균 숫자만 전송한다.
+새 흐름은 rppg-web이 브라우저에서 계산한 심박/품질 요약만 전송한다.
+기존 RGB 시계열은 호환 경로로만 받는다.
 """
 
 from __future__ import annotations
 
 import uuid
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -40,6 +42,19 @@ class RgbSample(BaseModel):
     b: float
 
 
+class RppgMeasurement(BaseModel):
+    """브라우저 안에서 rppg-web으로 계산한 요약값."""
+
+    source: Literal["rppg-web"]
+    version: str
+    bpm: float = Field(gt=0.0)
+    confidence: float = Field(ge=0.0, le=1.0)
+    signal_quality: float = Field(ge=0.0, le=1.0)
+    agreement: float | None = Field(default=None, ge=0.0, le=1.0)
+    reason_codes: list[str] = Field(default_factory=list)
+    stable_sample_count: int = Field(ge=1)
+
+
 class Capture(BaseModel):
     id: str = Field(default_factory=_uuid)
     session_id: str
@@ -50,7 +65,10 @@ class Capture(BaseModel):
     phase: Phase
 
     rgb_series: list[RgbSample] | None = None
-    """phase == IMAGINE 에서 필수."""
+    """레거시 서버 분석 경로. rppg_measurement가 없을 때만 사용."""
+
+    rppg_measurement: RppgMeasurement | None = None
+    """새 클라이언트 분석 경로. 영상/RGB 원자료를 포함하지 않는다."""
 
     audio_base64: str | None = None
     """phase == SPEAK 에서 필수."""
