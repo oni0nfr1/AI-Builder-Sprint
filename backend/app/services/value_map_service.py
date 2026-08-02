@@ -32,7 +32,10 @@ def build_value_map(user_id: str) -> ValueMap:
         by_axis[decision.value_axis].append((session, decision))
 
     axes = []
-    for axis, entries in sorted(by_axis.items()):
+    # ★많이 반복된 축부터. 가나다순으로 놓으면 한 번씩 나온 축들 사이에
+    # 열 번 반복된 축이 파묻힌다 — 가치관은 반복에서 나오는데 그게 안 보인다.
+    ordered = sorted(by_axis.items(), key=lambda item: (-len(item[1]), item[0]))
+    for axis, entries in ordered:
         counts, unlabelled = _count_sides(entries)
         axes.append(
             ValueAxisEntry(
