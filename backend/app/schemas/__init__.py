@@ -30,6 +30,8 @@ from app.schemas.features import (
 from app.schemas.report import DEFAULT_BODY_TAGS, Annotation, Report
 from app.schemas.session import (
     Horizon,
+    Conviction,
+    ConvictionGroup,
     Retrospective,
     Session,
     ValueAxisEntry,
@@ -74,6 +76,8 @@ __all__ = [
     "DEFAULT_BODY_TAGS",
     # [7][8]
     "Session",
+    "Conviction",
+    "ConvictionGroup",
     "Retrospective",
     "Horizon",
     "ValueMap",

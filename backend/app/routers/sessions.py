@@ -10,6 +10,7 @@ from app.schemas import (
     Annotation,
     ApiResponse,
     Capture,
+    Conviction,
     Decision,
     Features,
     Report,
@@ -17,7 +18,13 @@ from app.schemas import (
     Session,
     ValueMap,
 )
-from app.services import analysis_service, feature_service, report_service, value_map_service
+from app.services import (
+    analysis_service,
+    conviction_service,
+    feature_service,
+    report_service,
+    value_map_service,
+)
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
@@ -128,5 +135,15 @@ value_router = APIRouter(prefix="/value-map", tags=["value-map"])
 
 @value_router.get("", response_model=ApiResponse[ValueMap])
 async def get_value_map() -> ApiResponse[ValueMap]:
-    """[8] 가치관 지도. 고민들을 가로질러 반복되는 축을 집계한다."""
+    """[8] 가치관 지도 (2층). 고민들을 가로질러 반복되는 축을 집계한다."""
     return ApiResponse.success(value_map_service.build_value_map())
+
+
+# 3층은 시간이 지나야만 생긴다. 제품의 층 구조를 그대로 엔드포인트로 드러낸다.
+conviction_router = APIRouter(prefix="/conviction", tags=["conviction"])
+
+
+@conviction_router.get("", response_model=ApiResponse[Conviction])
+async def get_conviction() -> ApiResponse[Conviction]:
+    """[8] 확신 (3층). 그때 자기 입으로 말한 것과 지금의 만족도를 대조한다."""
+    return ApiResponse.success(conviction_service.build_conviction())

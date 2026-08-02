@@ -73,3 +73,28 @@ class ValueMap(BaseModel):
     """
 
     axes: list[ValueAxisEntry] = Field(default_factory=list)
+
+
+class ConvictionGroup(BaseModel):
+    """자기 진술대로 골랐는가로 나눈 한 무리."""
+
+    followed_intuition: bool
+    count: int = 0
+    average_satisfaction: float | None = None
+
+
+class Conviction(BaseModel):
+    """확신 (3층). "내 직관은 믿을 만한가"의 재료.
+
+    ★결론을 내지 않는다. 자기 진술(`annotation.self_lean_option_id`)대로 고른 경우와
+    그러지 않은 경우의 만족도를 나란히 놓을 뿐이고, 그 대조에서 무엇을 읽을지는
+    사용자가 정한다. "당신의 직관은 정확합니다"는 결정 대행이다.
+
+    비교 대상이 우리 판정(`verdict.lean`)이 아니라 **사용자가 자기 입으로 말한 것**인
+    이유도 같다 — 자기가 말한 것만이 자기 기준점이 된다.
+    """
+
+    total_retrospectives: int = 0
+    groups: list[ConvictionGroup] = Field(default_factory=list)
+    note: str = ""
+    """관찰 한 문장. 판정이 아니다."""

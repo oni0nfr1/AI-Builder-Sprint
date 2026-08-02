@@ -45,6 +45,7 @@ app.add_middleware(
 app.include_router(decisions.router)
 app.include_router(sessions.router)
 app.include_router(sessions.value_router)
+app.include_router(sessions.conviction_router)
 
 
 def _envelope(code: str, message: str, status: int) -> JSONResponse:
