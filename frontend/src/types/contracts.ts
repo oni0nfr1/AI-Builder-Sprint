@@ -72,9 +72,21 @@ export interface RgbSample {
   b: number;
 }
 
+/** 브라우저 안에서 rppg-web으로 계산한 요약값. 영상/RGB 원자료는 포함하지 않는다. */
+export interface RppgMeasurement {
+  source: 'rppg-web';
+  version: string;
+  bpm: number;
+  confidence: number;
+  signal_quality: number;
+  agreement: number | null;
+  reason_codes: string[];
+  stable_sample_count: number;
+}
+
 /**
  * 프라이버시 전제: 영상 프레임 원본은 서버로 보내지 않는다.
- * 브라우저에서 MediaPipe로 얼굴 ROI를 잡고 RGB 평균 숫자만 전송한다.
+ * 새 흐름은 rppg-web이 브라우저에서 계산한 심박/품질 요약만 전송한다.
  */
 export interface Capture {
   id?: string;
@@ -82,8 +94,10 @@ export interface Capture {
   segment: Segment;
   option_id: string | null;
   phase: Phase;
-  /** phase === 'imagine' 에서 필수. */
+  /** 레거시 서버 분석 경로. rppg_measurement가 없을 때만 사용한다. */
   rgb_series: RgbSample[] | null;
+  /** 새 클라이언트 분석 경로. phase === 'imagine'에서 사용한다. */
+  rppg_measurement: RppgMeasurement | null;
   /** phase === 'speak' 에서 필수. */
   audio_base64: string | null;
   transcript: string | null;
@@ -111,7 +125,11 @@ export interface HeartRateFeatures {
   bpm: number;
   /** 0~1. 항상 반환된다. 0.4 미만이면 판정에서 심박 축이 제외된다. */
   confidence: number;
-  snr_db: number;
+  snr_db: number | null;
+  source: 'server_rgb' | 'rppg-web';
+  signal_quality: number | null;
+  agreement: number | null;
+  reason_codes: string[];
   /** MVP(웹캠 rPPG)에서는 항상 null. 웨어러블 연동 시 채운다. */
   hrv_rmssd: number | null;
 }

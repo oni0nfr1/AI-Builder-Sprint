@@ -25,7 +25,6 @@ src/
     wav.ts               Float32 → 16-bit PCM WAV base64
     audio.ts             마이크 녹음 → 16kHz 모노 WAV
     rppg.ts              ★rppg-web 세션 → 브라우저 내 심박/품질 요약
-    faceRoi.ts           이전 RGB 수집 구현(롤백용, 현재 흐름에서는 미사용)
     stt.ts               Web Speech API (없어도 동작)
     sessionFlow.ts       세션 스텝 정의 (약 80초)
   hooks/useSessionFlow.ts  상태 머신

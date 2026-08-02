@@ -14,7 +14,12 @@ import {
   uploadCapture,
 } from '../api/client';
 import { AudioRecorder, requestMedia } from '../lib/audio';
-import { RoiSampler, recordRgbSeries, type RoiQuality } from '../lib/faceRoi';
+import {
+  IDLE_RPPG_QUALITY,
+  RppgController,
+  UNAVAILABLE_RPPG_QUALITY,
+  type RppgQuality,
+} from '../lib/rppg';
 import { buildSteps, type CaptureStep } from '../lib/sessionFlow';
 import { Transcriber } from '../lib/stt';
 import type { Annotation, Decision, Report } from '../types/contracts';
@@ -35,12 +40,10 @@ export interface FlowState {
   steps: CaptureStep[];
   stepIndex: number;
   elapsedSec: number;
-  quality: RoiQuality;
+  quality: RppgQuality;
   report: Report | null;
   errorMessage: string | null;
 }
-
-const IDLE_QUALITY: RoiQuality = { brightness: 0, faceDetected: false };
 
 const INITIAL: FlowState = {
   phase: 'input',
@@ -48,7 +51,7 @@ const INITIAL: FlowState = {
   steps: [],
   stepIndex: 0,
   elapsedSec: 0,
-  quality: IDLE_QUALITY,
+  quality: IDLE_RPPG_QUALITY,
   report: null,
   errorMessage: null,
 };
@@ -57,44 +60,22 @@ export function useSessionFlow(videoRef: React.RefObject<HTMLVideoElement>) {
   const [state, setState] = useState<FlowState>(INITIAL);
 
   const streamRef = useRef<MediaStream | null>(null);
-  const samplerRef = useRef<RoiSampler | null>(null);
+  const rppgRef = useRef<RppgController | null>(null);
   const sessionIdRef = useRef<string | null>(null);
-  const preflightRef = useRef<number | null>(null);
 
   const fail = useCallback((message: string) => {
     setState((prev) => ({ ...prev, phase: 'error', errorMessage: message }));
   }, []);
 
-  const stopPreflight = useCallback(() => {
-    if (preflightRef.current === null) return;
-    window.clearInterval(preflightRef.current);
-    preflightRef.current = null;
-  }, []);
-
-  /**
-   * 준비 화면에서 ROI 신호를 미리 보여준다.
-   *
-   * 조명 경고를 캡처 중에만 띄우면 이미 15초가 흐른 뒤라 늦다. 어두운 채로
-   * 세션을 끝내면 심박이 통째로 버려지므로(실측 confidence 0.05), 시작 전에
-   * 사용자가 조명을 고칠 기회를 준다.
-   */
-  const startPreflight = useCallback(() => {
-    stopPreflight();
-    preflightRef.current = window.setInterval(() => {
-      const sampler = samplerRef.current;
-      if (!sampler) return;
-      sampler.sample(performance.now());
-      setState((prev) => ({ ...prev, quality: sampler.quality }));
-    }, 200);
-  }, [stopPreflight]);
-
   const stopMedia = useCallback(() => {
-    stopPreflight();
-    samplerRef.current?.dispose();
-    samplerRef.current = null;
+    const rppg = rppgRef.current;
+    rppgRef.current = null;
+    void rppg?.dispose().catch((error: unknown) => {
+      console.warn('rPPG 리소스를 정리하지 못했습니다.', error);
+    });
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
-  }, [stopPreflight]);
+  }, []);
 
   /** [0] 고민 등록 + 카메라·마이크 준비. */
   const start = useCallback(
@@ -113,7 +94,23 @@ export function useSessionFlow(videoRef: React.RefObject<HTMLVideoElement>) {
         video.srcObject = stream;
         await video.play();
 
-        samplerRef.current = await RoiSampler.create(video);
+        try {
+          rppgRef.current = await RppgController.create(
+            video,
+            (quality) => setState((prev) => ({ ...prev, quality })),
+            () => {
+              const failedRppg = rppgRef.current;
+              rppgRef.current = null;
+              void failedRppg?.dispose().catch((disposeError: unknown) => {
+                console.warn('실패한 rPPG 세션을 정리하지 못했습니다.', disposeError);
+              });
+            },
+          );
+        } catch (error) {
+          // 심박은 보조 신호다. 초기화 실패가 음성 기반 세션 전체를 막아서는 안 된다.
+          console.warn('rppg-web 초기화 실패 — 심박 없이 계속합니다.', error);
+          setState((prev) => ({ ...prev, quality: UNAVAILABLE_RPPG_QUALITY }));
+        }
 
         setState((prev) => ({
           ...prev,
@@ -121,7 +118,6 @@ export function useSessionFlow(videoRef: React.RefObject<HTMLVideoElement>) {
           decision,
           steps: buildSteps(decision),
         }));
-        startPreflight();
       } catch (error) {
         stopMedia();
         fail(
@@ -131,31 +127,36 @@ export function useSessionFlow(videoRef: React.RefObject<HTMLVideoElement>) {
         );
       }
     },
-    [fail, startPreflight, stopMedia, videoRef],
+    [fail, stopMedia, videoRef],
   );
 
   /** [1] 한 스텝 캡처 → [2] 업로드. */
   const runStep = useCallback(async (step: CaptureStep) => {
     const sessionId = sessionIdRef.current;
-    const sampler = samplerRef.current;
     const stream = streamRef.current;
-    if (!sessionId || !sampler || !stream) throw new Error('세션이 준비되지 않았습니다.');
+    if (!sessionId || !stream) throw new Error('세션이 준비되지 않았습니다.');
 
     if (step.phase === 'imagine') {
       // 정지 구간 — 심박만 잰다. 말하면 얼굴 근육이 움직여 rPPG가 깨진다.
-      const recording = await recordRgbSeries(sampler, step.durationSec, (elapsedSec, quality) =>
-        setState((prev) => ({ ...prev, elapsedSec, quality })),
-      );
+      const rppg = rppgRef.current;
+      const measurement = rppg
+        ? await rppg.record(step.durationSec, (elapsedSec) =>
+            setState((prev) => ({ ...prev, elapsedSec })),
+          )
+        : await countdown(step.durationSec, (elapsedSec) =>
+            setState((prev) => ({ ...prev, elapsedSec })),
+          ).then(() => null);
       await uploadCapture(sessionId, {
         session_id: sessionId,
         segment: step.segment,
         option_id: step.optionId,
         phase: 'imagine',
-        rgb_series: recording.series,
+        rgb_series: null,
+        rppg_measurement: measurement,
         audio_base64: null,
         transcript: null,
-        fps: recording.fps,
-        duration_sec: recording.durationSec,
+        fps: 0,
+        duration_sec: step.durationSec,
       });
       return;
     }
@@ -183,6 +184,7 @@ export function useSessionFlow(videoRef: React.RefObject<HTMLVideoElement>) {
       option_id: step.optionId,
       phase: 'speak',
       rgb_series: null,
+      rppg_measurement: null,
       audio_base64: audioBase64,
       transcript,
       fps: 0,
@@ -196,9 +198,6 @@ export function useSessionFlow(videoRef: React.RefObject<HTMLVideoElement>) {
     const steps = state.steps;
     if (!sessionId || steps.length === 0) return;
 
-    // 캡처 루프가 직접 샘플링하므로 프리플라이트와 겹치면 안 된다.
-    stopPreflight();
-
     try {
       for (let index = 0; index < steps.length; index += 1) {
         setState((prev) => ({
@@ -206,7 +205,6 @@ export function useSessionFlow(videoRef: React.RefObject<HTMLVideoElement>) {
           phase: 'capturing',
           stepIndex: index,
           elapsedSec: 0,
-          quality: IDLE_QUALITY,
         }));
         await runStep(steps[index]);
       }
@@ -220,7 +218,7 @@ export function useSessionFlow(videoRef: React.RefObject<HTMLVideoElement>) {
       stopMedia();
       fail(error instanceof Error ? error.message : '기록 중 문제가 생겼습니다.');
     }
-  }, [fail, runStep, state.steps, stopMedia, stopPreflight]);
+  }, [fail, runStep, state.steps, stopMedia]);
 
   /** [6] 사용자 태깅 — 해석의 주체는 사용자다. */
   const submitAnnotation = useCallback(
