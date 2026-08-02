@@ -70,6 +70,24 @@ def _chrom(rgb: np.ndarray) -> np.ndarray:
     return x - alpha * y
 
 
+DETREND_WINDOW_SEC = 1.0
+"""이동평균 창 길이. 이보다 느린 변동은 맥동이 아니라 드리프트로 본다."""
+
+
+def _detrend(x: np.ndarray, fs: float) -> np.ndarray:
+    """이동평균을 빼서 느린 드리프트를 없앤다.
+
+    `scipy.detrend`는 **직선**만 뺀다. 조명이 서서히 바뀌거나 자세가 조금씩
+    무너지면 곡선형 드리프트가 남아 저주파 전력이 되고, 그게 SNR 분모를 키운다.
+    실측에서 bpm 추정치는 그대로 두고 SNR 만 약 1dB 개선됐다 (OPEN_QUESTIONS Q3).
+    """
+    window = max(3, int(fs * DETREND_WINDOW_SEC) | 1)
+    if window >= len(x):
+        return sp_signal.detrend(x)
+    kernel = np.ones(window) / window
+    return x - np.convolve(x, kernel, mode="same")
+
+
 def _bandpass(x: np.ndarray, fs: float) -> np.ndarray:
     nyq = fs / 2.0
     high = min(BAND_HIGH_HZ / nyq, 0.99)
@@ -142,7 +160,7 @@ def estimate_heart_rate(
         return HeartRateFeatures(bpm=0.0, confidence=0.0, snr_db=-99.0)
 
     combined = _chrom(rgb)
-    detrended = sp_signal.detrend(combined)
+    detrended = _detrend(combined, fs)
 
     # 정규화해서 이후 절대 임계값이 신호 크기와 무관하게 동작하게 한다.
     scale = float(np.std(detrended))
