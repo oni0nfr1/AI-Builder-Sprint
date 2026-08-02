@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.core import storage
+from app.core.identity import current_user
 from app.schemas import (
     Annotation,
     ApiResponse,
@@ -48,14 +49,17 @@ def _save_session(session: Session) -> None:
         session.id,
         session.model_dump(mode="json"),
         decision_id=session.decision_id,
+        user_id=session.user_id,
     )
 
 
 @router.post("", response_model=ApiResponse[Session])
-async def create_session(req: SessionCreateRequest) -> ApiResponse[Session]:
+async def create_session(
+    req: SessionCreateRequest, user_id: str = Depends(current_user)
+) -> ApiResponse[Session]:
     if storage.get("decisions", req.decision_id) is None:
         raise HTTPException(status_code=404, detail="고민을 찾을 수 없습니다.")
-    session = Session(decision_id=req.decision_id)
+    session = Session(decision_id=req.decision_id, user_id=user_id)
     _save_session(session)
     return ApiResponse.success(session)
 
@@ -149,9 +153,9 @@ value_router = APIRouter(prefix="/value-map", tags=["value-map"])
 
 
 @value_router.get("", response_model=ApiResponse[ValueMap])
-async def get_value_map() -> ApiResponse[ValueMap]:
+async def get_value_map(user_id: str = Depends(current_user)) -> ApiResponse[ValueMap]:
     """[8] 가치관 지도 (2층). 고민들을 가로질러 반복되는 축을 집계한다."""
-    return ApiResponse.success(value_map_service.build_value_map())
+    return ApiResponse.success(value_map_service.build_value_map(user_id))
 
 
 # 3층은 시간이 지나야만 생긴다. 제품의 층 구조를 그대로 엔드포인트로 드러낸다.
@@ -159,6 +163,6 @@ conviction_router = APIRouter(prefix="/conviction", tags=["conviction"])
 
 
 @conviction_router.get("", response_model=ApiResponse[Conviction])
-async def get_conviction() -> ApiResponse[Conviction]:
+async def get_conviction(user_id: str = Depends(current_user)) -> ApiResponse[Conviction]:
     """[8] 확신 (3층). 그때 자기 입으로 말한 것과 지금의 만족도를 대조한다."""
-    return ApiResponse.success(conviction_service.build_conviction())
+    return ApiResponse.success(conviction_service.build_conviction(user_id))

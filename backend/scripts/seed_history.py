@@ -40,6 +40,16 @@ from app.schemas.session import Horizon, Retrospective, Session  # noqa: E402
 PREFIX = "seed-"
 NOW = datetime(2026, 8, 2, tzinfo=timezone.utc)
 
+DEMO_USER_ID = "demo-intuition-note"
+"""이 이력의 주인.
+
+축적 뷰(2층 가치관 / 3층 확신)는 여러 달치 이력이 있어야 뜻이 생기는데, 시연
+자리에서 그걸 만들 수는 없다. 미리 심어둔 이 사용자로 갈아타면 바로 보여줄 수 있다.
+
+프론트에서 `?user=demo-intuition-note` 로 열면 전환된다.
+실제 사용자의 기록과는 `user_id` 로 완전히 분리되어 섞이지 않는다.
+"""
+
 
 class Entry:
     """한 건의 과거 기록. 선택지 두 개와 그때 사용자가 말한 것."""
@@ -227,6 +237,7 @@ def _decision(entry: Entry) -> Decision:
     created = NOW - timedelta(days=entry.days_ago)
     return Decision(
         id=f"{PREFIX}d{entry.key}",
+        user_id=DEMO_USER_ID,
         raw_input=entry.raw_input,
         title=entry.title,
         value_axis=entry.value_axis,
@@ -265,6 +276,7 @@ def _session(entry: Entry, decision: Decision) -> Session:
 
     return Session(
         id=session_id,
+        user_id=DEMO_USER_ID,
         decision_id=decision.id,
         # captures/features 는 비워둔다. 원자료를 영구 보관하지 않는다는
         # 프라이버시 전제와도 맞고, 축적 뷰에는 필요하지 않다.
@@ -285,12 +297,18 @@ def seed() -> None:
     for entry in ENTRIES:
         decision = _decision(entry)
         session = _session(entry, decision)
-        storage.put("decisions", decision.id, decision.model_dump(mode="json"))
+        storage.put(
+            "decisions",
+            decision.id,
+            decision.model_dump(mode="json"),
+            user_id=DEMO_USER_ID,
+        )
         storage.put(
             "sessions",
             session.id,
             session.model_dump(mode="json"),
             decision_id=decision.id,
+            user_id=DEMO_USER_ID,
         )
         if entry.retro is None:
             continue
@@ -307,7 +325,12 @@ def seed() -> None:
 
     retros = sum(1 for e in ENTRIES if e.retro)
     print(f"심었습니다 — 고민 {len(ENTRIES)}건, 세션 {len(ENTRIES)}건, 회고 {retros}건")
-    print("확인:  GET /value-map   GET /conviction")
+    print(f"사용자: {DEMO_USER_ID}")
+    print()
+    print("시연:   http://localhost:5173/?user=" + DEMO_USER_ID)
+    print("확인:   curl -H 'X-User-Id: %s' http://127.0.0.1:8000/value-map" % DEMO_USER_ID)
+    print()
+    print("⚠️  심어둔 이력은 실제 측정이 아니다. 시연에서 반드시 밝힐 것.")
 
 
 def _horizon_delta(horizon: Horizon) -> timedelta:

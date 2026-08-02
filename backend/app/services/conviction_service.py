@@ -24,17 +24,21 @@ MIN_RETROSPECTIVES = 2
 """이보다 적으면 대조가 의미를 갖지 못한다."""
 
 
-def build_conviction() -> Conviction:
+def build_conviction(user_id: str) -> Conviction:
+    """★사람별로 집계한다. 남의 만족도가 내 확신의 근거가 되면 안 된다."""
     self_leans = {
         session.id: session.annotation.self_lean_option_id
-        for session in (Session.model_validate(raw) for raw in storage.list_all("sessions"))
+        for session in (
+            Session.model_validate(raw)
+            for raw in storage.list_all("sessions", user_id=user_id)
+        )
         if session.annotation and session.annotation.self_lean_option_id
     }
 
     followed: list[int] = []
     diverged: list[int] = []
     total = 0
-    for raw in storage.list_retrospectives():
+    for raw in storage.list_retrospectives(user_id=user_id):
         retro = Retrospective.model_validate(raw)
         total += 1
         stated = self_leans.get(retro.session_id)

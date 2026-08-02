@@ -132,10 +132,13 @@ _MAX_KNOWN_AXES = 12
 """프롬프트에 넣을 기존 축 개수. 너무 많으면 억지로 끼워맞추게 된다."""
 
 
-def _known_axes() -> list[str]:
-    """지금까지 쓰인 축을 많이 쓰인 순으로."""
+def _known_axes(user_id: str) -> list[str]:
+    """그 사람이 지금까지 쓴 축을 많이 쓰인 순으로.
+
+    남의 축을 보여주면 그 사람이 무엇을 고민 중인지가 새어 나간다.
+    """
     counts: Counter[str] = Counter()
-    for raw in storage.list_all("decisions"):
+    for raw in storage.list_all("decisions", user_id=user_id):
         axis = (raw.get("value_axis") or "").strip()
         if axis:
             counts[axis] += 1
@@ -280,8 +283,8 @@ def _finalize(decision: Decision, known: list[str]) -> Decision:
     return _randomize_order(_normalize_prompts(_normalize_axis_sides(decision)))
 
 
-async def parse_decision(raw_input: str) -> Decision:
-    known = _known_axes()
+async def parse_decision(raw_input: str, user_id: str = "local") -> Decision:
+    known = _known_axes(user_id)
     parsed = await chat_json(_SYSTEM, _user_message(raw_input, known))
     if not parsed or len(parsed.get("options", [])) != 2:
         return _finalize(_fallback(raw_input), known)

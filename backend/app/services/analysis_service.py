@@ -203,7 +203,8 @@ def _latent_distances(
     keys = encoder.egemaps_keys()
     if not keys:
         return None, None
-    stats = encoder.corpus_stats(keys)
+    # 개인별 표준화 — 남의 분포로 재면 그 사람 고유의 변동이 아니라 사람 간 차이를 잰다.
+    stats = encoder.corpus_stats(keys, user_id=session.user_id)
     if stats is None:
         return None, None
 

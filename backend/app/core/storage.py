@@ -38,21 +38,50 @@ CREATE TABLE IF NOT EXISTS retrospectives (
 CREATE INDEX IF NOT EXISTS idx_sessions_decision ON sessions(decision_id);
 """
 
+DEFAULT_USER_ID = "local"
+"""user_id 가 생기기 전에 저장된 행들의 주인. NULL 을 이 값으로 읽는다."""
+
+# user_id 는 나중에 들어왔다. ALTER TABLE 은 이미 있는 컬럼에 실패하므로 따로 시도한다.
+_MIGRATIONS = [
+    "ALTER TABLE decisions ADD COLUMN user_id TEXT",
+    "ALTER TABLE sessions ADD COLUMN user_id TEXT",
+    "CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_decisions_user ON decisions(user_id)",
+]
+
+
+_ready: set[str] = set()
+"""스키마를 확인한 DB 경로. 서비스를 직접 부르는 테스트도 마이그레이션을 타야 한다."""
+
 
 @contextmanager
 def connect() -> Iterator[sqlite3.Connection]:
-    conn = sqlite3.connect(get_settings().db_path)
+    path = get_settings().db_path
+    conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
     try:
+        if path not in _ready:
+            _apply_schema(conn)
+            _ready.add(path)
         yield conn
         conn.commit()
     finally:
         conn.close()
 
 
+def _apply_schema(conn: sqlite3.Connection) -> None:
+    conn.executescript(_SCHEMA)
+    for statement in _MIGRATIONS:
+        try:
+            conn.execute(statement)
+        except sqlite3.OperationalError:
+            # 이미 적용된 마이그레이션. SQLite 에는 IF NOT EXISTS 컬럼 문법이 없다.
+            pass
+
+
 def init_db() -> None:
     with connect() as conn:
-        conn.executescript(_SCHEMA)
+        _apply_schema(conn)
 
 
 def put(table: str, row_id: str, payload: dict[str, Any], **extra: str) -> None:
@@ -79,11 +108,23 @@ def get(table: str, row_id: str) -> dict[str, Any] | None:
     return json.loads(row["payload"]) if row else None
 
 
-def list_all(table: str) -> list[dict[str, Any]]:
+def list_all(table: str, *, user_id: str | None = None) -> list[dict[str, Any]]:
+    """★user_id 를 주면 그 사람 것만.
+
+    주지 않으면 전원이 섞인다. [8] 축적과 개인 표준화는 **반드시** 주어야 한다 —
+    안 주면 남의 기록이 내 가치관 지도에 들어온다.
+    """
     with connect() as conn:
-        rows = conn.execute(
-            f"SELECT payload FROM {table} ORDER BY created_at"
-        ).fetchall()
+        if user_id is None:
+            rows = conn.execute(
+                f"SELECT payload FROM {table} ORDER BY created_at"
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                f"SELECT payload FROM {table} "
+                "WHERE COALESCE(user_id, ?) = ? ORDER BY created_at",
+                (DEFAULT_USER_ID, user_id),
+            ).fetchall()
     return [json.loads(r["payload"]) for r in rows]
 
 
@@ -101,7 +142,16 @@ def put_retrospective(session_id: str, horizon: str, payload: dict[str, Any]) ->
         )
 
 
-def list_retrospectives() -> list[dict[str, Any]]:
+def list_retrospectives(*, user_id: str | None = None) -> list[dict[str, Any]]:
+    """회고는 세션에 딸려 있으므로 세션의 주인을 따라간다."""
     with connect() as conn:
-        rows = conn.execute("SELECT payload FROM retrospectives").fetchall()
+        if user_id is None:
+            rows = conn.execute("SELECT payload FROM retrospectives").fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT r.payload FROM retrospectives r "
+                "JOIN sessions s ON s.id = r.session_id "
+                "WHERE COALESCE(s.user_id, ?) = ?",
+                (DEFAULT_USER_ID, user_id),
+            ).fetchall()
     return [json.loads(r["payload"]) for r in rows]

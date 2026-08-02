@@ -24,6 +24,16 @@ def _now() -> datetime:
 
 class Session(BaseModel):
     id: str = Field(default_factory=_uuid)
+    user_id: str = "local"
+    """★누구의 기록인가.
+
+    인증은 없다. 브라우저가 UUID 를 만들어 localStorage 에 두고 보낸다 — MVP 에는
+    그걸로 충분하고, 계정을 만들라고 하는 순간 진짜 고민을 말하지 않게 된다.
+
+    이게 없으면 [8] 축적이 **남의 기록을 내 것처럼** 집계한다. 개인별 표준화
+    (라벨 없는 개인화)도 성립하지 않는다.
+    """
+
     decision_id: str
     captures: list[Capture] = Field(default_factory=list)
     features: list[Features] = Field(default_factory=list)

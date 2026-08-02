@@ -64,7 +64,10 @@ _EPSILON = 1e-9
 
 
 def egemaps_keys() -> list[str]:
-    """eGeMAPS 차원 순서를 고정한다. 순서가 흔들리면 벡터가 의미를 잃는다."""
+    """eGeMAPS 차원 순서를 고정한다. 순서가 흔들리면 벡터가 의미를 잃는다.
+
+    차원 **이름**은 openSMILE 이 정하는 것이라 사람과 무관하다. 여기만 전체를 본다.
+    """
     for raw in storage.list_all("sessions"):
         for feature in raw.get("features") or []:
             voice = feature.get("voice") or {}
@@ -74,14 +77,19 @@ def egemaps_keys() -> list[str]:
     return []
 
 
-def corpus_stats(keys: list[str]) -> tuple[np.ndarray, np.ndarray] | None:
-    """지금까지 쌓인 모든 발화의 평균·표준편차.
+def corpus_stats(keys: list[str], *, user_id: str | None = None) -> tuple[np.ndarray, np.ndarray] | None:
+    """그 사람이 지금까지 남긴 발화의 평균·표준편차.
 
     eGeMAPS 차원들은 크기가 제각각이다(F0 는 20 남짓, jitter 는 0.02). 표준화 없이
     거리를 재면 큰 차원이 전부를 결정한다.
+
+    ★`user_id` 를 주면 **개인별 표준화**가 된다 — 라벨이 필요 없는 개인화다.
+    사람마다 목소리의 기준선이 다르므로, 남의 분포로 표준화하면 그 사람 고유의
+    변동이 아니라 사람 간 차이를 재게 된다. 표본이 부족하면 None 을 돌려주고
+    호출부가 잠재 축을 통째로 뺀다 — 근거 없는 거리보다 없는 편이 낫다.
     """
     rows: list[list[float]] = []
-    for raw in storage.list_all("sessions"):
+    for raw in storage.list_all("sessions", user_id=user_id):
         for feature in raw.get("features") or []:
             egemaps = (feature.get("voice") or {}).get("egemaps")
             if not egemaps:

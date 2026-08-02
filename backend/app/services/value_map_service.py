@@ -16,13 +16,15 @@ from app.schemas.decision import Decision
 from app.schemas.session import Session, ValueAxisEntry, ValueMap
 
 
-def build_value_map() -> ValueMap:
+def build_value_map(user_id: str) -> ValueMap:
+    """★사람별로 집계한다. user_id 없이 부르면 남의 기록이 내 지도에 들어온다."""
     decisions = {
-        raw["id"]: Decision.model_validate(raw) for raw in storage.list_all("decisions")
+        raw["id"]: Decision.model_validate(raw)
+        for raw in storage.list_all("decisions", user_id=user_id)
     }
 
     by_axis: dict[str, list[tuple[Session, Decision]]] = defaultdict(list)
-    for raw in storage.list_all("sessions"):
+    for raw in storage.list_all("sessions", user_id=user_id):
         session = Session.model_validate(raw)
         decision = decisions.get(session.decision_id)
         if decision is None or not decision.value_axis:

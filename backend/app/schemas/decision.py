@@ -42,6 +42,9 @@ class Option(BaseModel):
 
 class Decision(BaseModel):
     id: str = Field(default_factory=_uuid)
+    user_id: str = "local"
+    """누구의 고민인가. 가치 축 재사용도 이 사람 이력 안에서만 일어난다."""
+
     raw_input: str
     """사용자가 말하거나 쓴 원문."""
 

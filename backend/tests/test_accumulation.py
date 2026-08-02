@@ -39,6 +39,7 @@ def _record(
     sides: tuple[str | None, str | None],
     self_lean: int,
     retro: tuple[int, int] | None = None,
+    owner: str = "u1",
 ) -> None:
     """고민 + 세션(+회고) 한 벌을 저장한다. retro 는 (고른 쪽, 만족도)."""
     decision = Decision(
@@ -60,15 +61,22 @@ def _record(
     )
     session = Session(
         id=f"s{key}",
+        user_id=owner,
         decision_id=decision.id,
         annotation=Annotation(
             session_id=f"s{key}",
             self_lean_option_id=decision.options[self_lean].id,
         ),
     )
-    storage.put("decisions", decision.id, decision.model_dump(mode="json"))
     storage.put(
-        "sessions", session.id, session.model_dump(mode="json"), decision_id=decision.id
+        "decisions", decision.id, decision.model_dump(mode="json"), user_id=owner
+    )
+    storage.put(
+        "sessions",
+        session.id,
+        session.model_dump(mode="json"),
+        decision_id=decision.id,
+        user_id=owner,
     )
     if retro is not None:
         chosen, satisfaction = retro
@@ -93,7 +101,7 @@ def test_pattern_counts_axis_sides_not_labels() -> None:
     _record("3", axis="안정 vs 성장", labels=("쉰다", "사이드를 시작한다"),
             sides=("안정", "성장"), self_lean=1)
 
-    axis = build_value_map().axes[0]
+    axis = build_value_map("u1").axes[0]
     assert "성장 3회" in axis.lean_pattern
     # 라벨이 그대로 새면 "1회, 1회, 1회"가 되어 패턴이 사라진다.
     for label in ("옮긴다", "대학원에 간다", "사이드를 시작한다"):
@@ -109,7 +117,7 @@ def test_split_axis_is_reported_as_split() -> None:
     _record("3", axis="관계 vs 자율", labels=("가족 행사", "혼자 시간"),
             sides=("관계", "자율"), self_lean=1)
 
-    pattern = build_value_map().axes[0].lean_pattern
+    pattern = build_value_map("u1").axes[0].lean_pattern
     assert "관계 2회" in pattern and "자율 1회" in pattern
 
 
@@ -120,7 +128,7 @@ def test_unlabelled_records_are_disclosed_not_dropped() -> None:
     _record("2", axis="안정 vs 성장", labels=("A", "B"),
             sides=(None, None), self_lean=1)
 
-    pattern = build_value_map().axes[0].lean_pattern
+    pattern = build_value_map("u1").axes[0].lean_pattern
     assert "성장 1회" in pattern
     assert "1건 제외" in pattern
 
@@ -129,7 +137,7 @@ def test_all_unlabelled_says_so_rather_than_insufficient() -> None:
     """기록이 있는데 '부족하다'고 하면 사실과 다르다."""
     _record("1", axis="안정 vs 성장", labels=("A", "B"),
             sides=(None, None), self_lean=0)
-    assert "나누지 못했" in build_value_map().axes[0].lean_pattern
+    assert "나누지 못했" in build_value_map("u1").axes[0].lean_pattern
 
 
 def test_pattern_uses_self_statement_not_our_verdict() -> None:
@@ -144,11 +152,13 @@ def test_pattern_uses_self_statement_not_our_verdict() -> None:
         ],
     )
     # annotation 이 없으면 우리 판정이 있어도 집계되지 않아야 한다.
-    session = Session(id="s1", decision_id="d1")
-    storage.put("decisions", "d1", decision.model_dump(mode="json"))
-    storage.put("sessions", "s1", session.model_dump(mode="json"), decision_id="d1")
+    session = Session(id="s1", user_id="u1", decision_id="d1")
+    storage.put("decisions", "d1", decision.model_dump(mode="json"), user_id="u1")
+    storage.put(
+        "sessions", "s1", session.model_dump(mode="json"), decision_id="d1", user_id="u1"
+    )
 
-    assert build_value_map().axes[0].lean_pattern == "아직 기록이 부족해요."
+    assert build_value_map("u1").axes[0].lean_pattern == "아직 기록이 부족해요."
 
 
 # ── 3층: 확신 ───────────────────────────────────────────────
@@ -163,7 +173,7 @@ def test_conviction_contrasts_followed_and_diverged() -> None:
     _record("3", axis="관계 vs 자율", labels=("모인다", "쉰다"),
             sides=("관계", "자율"), self_lean=0, retro=(1, 2))
 
-    conviction = build_conviction()
+    conviction = build_conviction("u1")
     followed = next(g for g in conviction.groups if g.followed_intuition)
     diverged = next(g for g in conviction.groups if not g.followed_intuition)
 
@@ -179,7 +189,7 @@ def test_conviction_note_is_observation_not_conclusion() -> None:
     _record("2", axis="안정 vs 성장", labels=("쉰다", "시작한다"),
             sides=("안정", "성장"), self_lean=1, retro=(0, 2))
 
-    note = build_conviction().note
+    note = build_conviction("u1").note
     for phrase in ("정확", "믿을 만", "추천", "권", "따르세요", "맞았"):
         assert phrase not in note
 
@@ -188,7 +198,7 @@ def test_conviction_waits_for_enough_records() -> None:
     """회고 한 건으로 확신을 말하면 근거 없는 규정이 된다."""
     _record("1", axis="안정 vs 성장", labels=("남는다", "옮긴다"),
             sides=("안정", "성장"), self_lean=1, retro=(1, 5))
-    assert "쌓이면" in build_conviction().note
+    assert "쌓이면" in build_conviction("u1").note
 
 
 def test_conviction_ignores_retrospectives_without_self_statement() -> None:
@@ -202,22 +212,24 @@ def test_conviction_ignores_retrospectives_without_self_statement() -> None:
                    imagine_prompt="", speak_prompt="", order_index=1),
         ],
     )
-    session = Session(id="s1", decision_id="d1")  # annotation 없음
-    storage.put("decisions", "d1", decision.model_dump(mode="json"))
-    storage.put("sessions", "s1", session.model_dump(mode="json"), decision_id="d1")
+    session = Session(id="s1", user_id="u1", decision_id="d1")  # annotation 없음
+    storage.put("decisions", "d1", decision.model_dump(mode="json"), user_id="u1")
+    storage.put(
+        "sessions", "s1", session.model_dump(mode="json"), decision_id="d1", user_id="u1"
+    )
     retro = Retrospective(
         session_id="s1", horizon=Horizon.M3, chosen_option_id="o2", satisfaction=5
     )
     storage.put_retrospective("s1", Horizon.M3.value, retro.model_dump(mode="json"))
 
-    conviction = build_conviction()
+    conviction = build_conviction("u1")
     assert conviction.total_retrospectives == 1
     assert all(g.count == 0 for g in conviction.groups)
 
 
 def test_empty_history_is_safe() -> None:
-    assert build_value_map().axes == []
-    assert build_conviction().total_retrospectives == 0
+    assert build_value_map("u1").axes == []
+    assert build_conviction("u1").total_retrospectives == 0
 
 
 def test_side_counts_are_ordered_by_frequency() -> None:
@@ -229,7 +241,7 @@ def test_side_counts_are_ordered_by_frequency() -> None:
     _record("3", axis="안정 vs 성장", labels=("유지", "전환"),
             sides=("안정", "성장"), self_lean=0)
 
-    axis = build_value_map().axes[0]
+    axis = build_value_map("u1").axes[0]
     assert list(axis.side_counts.items()) == [("성장", 2), ("안정", 1)]
     assert axis.unlabelled_count == 0
 
@@ -241,6 +253,52 @@ def test_unlabelled_count_is_exposed_separately() -> None:
     _record("2", axis="안정 vs 성장", labels=("A", "B"),
             sides=(None, None), self_lean=0)
 
-    axis = build_value_map().axes[0]
+    axis = build_value_map("u1").axes[0]
     assert axis.side_counts == {"성장": 1}
     assert axis.unlabelled_count == 1
+
+
+# ── 사용자 격리 ────────────────────────────────────────────
+
+
+def test_value_map_does_not_mix_users() -> None:
+    """★남의 기록이 내 가치관 지도에 들어오면 안 된다.
+
+    user_id 가 생기기 전에는 모든 세션이 한 사람 것처럼 집계됐다. 사용자가 둘만
+    돼도 지도가 거짓이 되고, 프라이버시 사고이기도 하다.
+    """
+    _record("1", axis="안정 vs 성장", labels=("남는다", "옮긴다"),
+            sides=("안정", "성장"), self_lean=1, owner="u1")
+    _record("2", axis="안정 vs 성장", labels=("남는다", "옮긴다"),
+            sides=("안정", "성장"), self_lean=0, owner="u2")
+    _record("3", axis="관계 vs 자율", labels=("모인다", "쉰다"),
+            sides=("관계", "자율"), self_lean=0, owner="u2")
+
+    mine = build_value_map("u1")
+    assert [a.axis for a in mine.axes] == ["안정 vs 성장"]
+    assert mine.axes[0].side_counts == {"성장": 1}
+
+    theirs = build_value_map("u2")
+    assert sorted(a.axis for a in theirs.axes) == ["관계 vs 자율", "안정 vs 성장"]
+    assert theirs.axes[1].side_counts == {"안정": 1} or theirs.axes[0].side_counts == {"관계": 1}
+
+
+def test_conviction_does_not_mix_users() -> None:
+    """남의 만족도가 내 확신의 근거가 되면 안 된다."""
+    _record("1", axis="안정 vs 성장", labels=("남는다", "옮긴다"),
+            sides=("안정", "성장"), self_lean=1, retro=(1, 5), owner="u1")
+    _record("2", axis="안정 vs 성장", labels=("남는다", "옮긴다"),
+            sides=("안정", "성장"), self_lean=1, retro=(0, 1), owner="u2")
+    _record("3", axis="관계 vs 자율", labels=("모인다", "쉰다"),
+            sides=("관계", "자율"), self_lean=0, retro=(0, 5), owner="u2")
+
+    assert build_conviction("u1").total_retrospectives == 1
+    assert build_conviction("u2").total_retrospectives == 2
+
+
+def test_unknown_user_sees_nothing() -> None:
+    """처음 온 사람에게 남의 기록을 보여주면 안 된다."""
+    _record("1", axis="안정 vs 성장", labels=("남는다", "옮긴다"),
+            sides=("안정", "성장"), self_lean=1, owner="u1")
+    assert build_value_map("stranger").axes == []
+    assert build_conviction("stranger").total_retrospectives == 0

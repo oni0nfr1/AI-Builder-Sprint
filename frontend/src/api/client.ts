@@ -18,6 +18,8 @@ import type {
   ValueMap,
 } from '../types/contracts';
 
+import { currentUserId } from '../lib/identity';
+
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
 
 export class ApiCallError extends Error {
@@ -35,7 +37,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   try {
     response = await fetch(`${BASE_URL}${path}`, {
       ...init,
-      headers: { 'Content-Type': 'application/json', ...init?.headers },
+      headers: {
+        'Content-Type': 'application/json',
+        // 로그인 없이 브라우저가 만든 식별자. 없으면 [8] 축적이 남의 기록을 섞는다.
+        'X-User-Id': currentUserId(),
+        ...init?.headers,
+      },
     });
   } catch {
     throw new ApiCallError('서버에 연결할 수 없습니다.', 'network_error');
