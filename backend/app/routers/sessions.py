@@ -21,6 +21,7 @@ from app.schemas import (
 from app.services import (
     analysis_service,
     conviction_service,
+    encoder,
     feature_service,
     report_service,
     stt,
@@ -93,6 +94,14 @@ async def analyze(session_id: str) -> ApiResponse[Report]:
     # 브라우저 STT 가 실패한 구간을 서버에서 채운다. 캡처 업로드가 아니라 여기서
     # 하는 이유는 stt.fill_missing_transcripts 주석 참조 — 지연을 이 화면에 묻는다.
     stt.fill_missing_transcripts(session)
+
+    # 발화 내용을 의미 벡터로. [3] 잠재 축에 **언어**를 들여오는 통로다.
+    # STT 뒤에 와야 한다 — 방금 채운 transcript 를 써야 하기 때문이다.
+    by_capture = {c.id: c for c in session.captures}
+    for features in session.features:
+        capture = by_capture.get(features.capture_id)
+        if capture is not None:
+            await encoder.attach_text_embedding(features, capture.transcript)
 
     delta = analysis_service.compute_delta(session, decision)
     verdict = analysis_service.judge(delta, decision)

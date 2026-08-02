@@ -50,3 +50,27 @@ async def chat_json(
     except Exception:
         logger.exception("Solar 호출 실패 — 규칙 기반 폴백으로 진행")
         return None
+
+
+async def embed_text(text: str) -> list[float] | None:
+    """발화 내용 → 의미 벡터 (4096차원).
+
+    별도 임베딩 모델을 로컬에 두지 않는다. 이미 Solar 를 쓰고 있고, 수백 MB 를
+    더 받을 이유가 없다. 실패하면 None — 잠재 축만 빠지고 나머지는 그대로 돈다.
+    """
+    settings = get_settings()
+    if not settings.llm_enabled or not text.strip():
+        return None
+
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT_SEC) as client:
+            response = await client.post(
+                f"{settings.upstage_base_url}/embeddings",
+                headers={"Authorization": f"Bearer {settings.upstage_api_key}"},
+                json={"model": settings.upstage_embedding_model, "input": text},
+            )
+            response.raise_for_status()
+            return [float(x) for x in response.json()["data"][0]["embedding"]]
+    except Exception:
+        logger.warning("임베딩 호출 실패 — 잠재 축 없이 진행", exc_info=True)
+        return None

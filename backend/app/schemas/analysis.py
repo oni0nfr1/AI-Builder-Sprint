@@ -42,6 +42,16 @@ class PreferenceDelta(BaseModel):
     per_metric: dict[MetricKey, float] = Field(default_factory=dict)
     """B 대비 A의 상대차(비율). 부호 있음."""
 
+    latent_distance: float | None = None
+    """잠재공간에서 A와 B가 얼마나 떨어져 있나 (0~2). 부호 없음.
+
+    ★per_metric 은 손으로 고른 8개 지표를 각각 본다. 이건 eGeMAPS 88 전부와
+    발화 의미 벡터를 섞은 표현에서의 거리다 — 상호작용과 언어 축이 들어온다.
+
+    **크기만 나오고 방향은 안 나온다.** 어느 쪽이 선호인지는 라벨이 있어야
+    학습할 수 있다 (OPEN_QUESTIONS Q8).
+    """
+
 
 class StateDelta(BaseModel):
     """상태축 — (A,B) 평균 vs default. 선호가 아니라 해석 프레임이다."""
@@ -49,6 +59,9 @@ class StateDelta(BaseModel):
     per_metric: dict[MetricKey, float] = Field(default_factory=dict)
     default_available: bool = False
     """False면 상태 판정은 UNKNOWN."""
+
+    latent_distance: float | None = None
+    """잠재공간에서 (A,B) 평균이 default 로부터 얼마나 떨어졌나 (0~2)."""
 
 
 class Delta(BaseModel):

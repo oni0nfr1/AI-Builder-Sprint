@@ -28,10 +28,12 @@ from app.schemas.analysis import (
     StateVerdict,
     Verdict,
 )
-from app.schemas.capture import Segment
+from app.schemas.capture import Phase, Segment
 from app.schemas.common import HR_METRICS, MetricKey
 from app.schemas.decision import Decision
+from app.schemas.features import Features
 from app.schemas.session import Session
+from app.services import encoder
 from app.services.korean import josa
 
 # ─────────────────────────────────────────────────────────── 부호 테이블
@@ -151,6 +153,8 @@ def compute_delta(session: Session, decision: Decision) -> Delta:
         current = (metrics_a[key] + metrics_b[key]) / 2.0
         state_per_metric[key] = (current - baseline) / abs(baseline)
 
+    latent_preference, latent_state = _latent_distances(session, option_a.id, option_b.id)
+
     return Delta(
         session_id=session.id,
         baseline_source=BaselineSource.SESSION_NEUTRAL,
@@ -158,12 +162,64 @@ def compute_delta(session: Session, decision: Decision) -> Delta:
             option_a_id=option_a.id,
             option_b_id=option_b.id,
             per_metric=preference_per_metric,
+            latent_distance=latent_preference,
         ),
         state=StateDelta(
             per_metric=state_per_metric,
             default_available=bool(default),
+            latent_distance=latent_state,
         ),
     )
+
+
+def _features_for(
+    session: Session, segment: Segment, option_id: str | None
+) -> Features | None:
+    """한 구간의 **발화** 특징. 잠재벡터는 음성에서 나온다."""
+    capture_ids = {
+        c.id
+        for c in session.captures
+        if c.segment == segment
+        and c.phase == Phase.SPEAK
+        and (option_id is None or c.option_id == option_id)
+    }
+    for features in session.features:
+        if features.capture_id in capture_ids and features.voice is not None:
+            return features
+    return None
+
+
+def _latent_distances(
+    session: Session, option_a_id: str, option_b_id: str
+) -> tuple[float | None, float | None]:
+    """잠재공간에서의 선호·상태 거리.
+
+    ★크기만 나온다. 방향(어느 쪽 선호인가)은 라벨이 있어야 나온다 —
+    지금은 규칙 기반 부호표가 그 역할을 한다 (OPEN_QUESTIONS Q8).
+
+    표준화에 쓸 말뭉치가 부족하면 통째로 None 을 돌려준다. 근거 없는 거리를
+    내놓느니 없다고 하는 편이 낫다.
+    """
+    keys = encoder.egemaps_keys()
+    if not keys:
+        return None, None
+    stats = encoder.corpus_stats(keys)
+    if stats is None:
+        return None, None
+
+    def vector(segment: Segment, option_id: str | None):
+        features = _features_for(session, segment, option_id)
+        return encoder.latent(features, keys, stats) if features else None
+
+    z_a = vector(Segment.OPTION, option_a_id)
+    z_b = vector(Segment.OPTION, option_b_id)
+    z_default = vector(Segment.NEUTRAL, None)
+
+    preference = encoder.cosine_distance(z_a, z_b) if z_a is not None and z_b is not None else None
+    state = None
+    if z_a is not None and z_b is not None and z_default is not None:
+        state = encoder.cosine_distance((z_a + z_b) / 2.0, z_default)
+    return preference, state
 
 
 # ══════════════════════════════════════════════════════ [4] 판정

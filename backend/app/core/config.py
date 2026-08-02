@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     upstage_api_key: str = ""
     upstage_base_url: str = "https://api.upstage.ai/v1"
     upstage_model: str = "solar-pro2"
+    upstage_embedding_model: str = "embedding-query"
+    """[3] 잠재 축 — 발화 내용의 의미 벡터 (4096차원)."""
 
     # 서버측 STT — 브라우저 Web Speech 는 구글 서버에 의존해 환경마다 실패한다 (Q7)
     stt_enabled: bool = True

@@ -62,6 +62,15 @@ class Features(BaseModel):
     hr: HeartRateFeatures | None = None
     """phase == IMAGINE 에서만."""
 
+    text_embedding: list[float] | None = None
+    """발화 내용의 의미 벡터 (Solar embedding).
+
+    ★[4] 판정에 **언어 축**을 들여오는 통로다. 지금까지 판정은 음향(비언어)만
+    보고 있었다 — 제품 정의는 "언어와 비언어 신호"인데 언어가 빠져 있었다.
+
+    재계산이 API 호출이라 저장한다. 없어도 파이프라인은 돈다.
+    """
+
     def as_metrics(self) -> dict[MetricKey, float]:
         metrics: dict[MetricKey, float] = {}
         if self.voice is not None:

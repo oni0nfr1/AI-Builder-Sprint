@@ -154,12 +154,22 @@ export interface PreferenceDelta {
   option_b_id: string;
   /** B 대비 A의 상대차. 부호 있음. */
   per_metric: MetricDelta;
+  /**
+   * 잠재공간에서 A와 B의 거리 (0~2). 부호 없음.
+   *
+   * per_metric은 손으로 고른 8개 지표를 각각 본다. 이건 eGeMAPS 88 전부와
+   * 발화 의미 벡터를 섞은 표현에서의 거리라 상호작용과 언어 축이 들어온다.
+   * **크기만 나오고 방향은 안 나온다** — 방향은 라벨이 쌓여야 학습된다 (Q8).
+   */
+  latent_distance: number | null;
 }
 
 export interface StateDelta {
   per_metric: MetricDelta;
   /** false면 상태 판정은 'unknown'. */
   default_available: boolean;
+  /** 잠재공간에서 (A,B) 평균이 default로부터 떨어진 거리 (0~2). */
+  latent_distance: number | null;
 }
 
 export interface Delta {

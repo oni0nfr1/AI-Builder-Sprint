@@ -191,14 +191,36 @@ Delta {
     option_a_id: string
     option_b_id: string
     per_metric: Record<MetricKey, number>   // B 기준 A의 상대차. 부호 있음
+    latent_distance: number | null          // 잠재공간 거리 0~2. 부호 없음
   }
 
   state: {                               // (A,B) 평균 vs default
     per_metric: Record<MetricKey, number>
     default_available: boolean           // false면 상태 판정 unknown
+    latent_distance: number | null
   }
 }
 ```
+
+### `latent_distance` — 멀티모달 잠재표현
+
+`per_metric`은 손으로 고른 8개 지표를 **각각** 본다. 상호작용이 없고, 맥락이 없고,
+음성과 심박을 따로 계산해 평균한다 — 혼합이 아니라 병렬이다.
+
+`latent_distance`는 세 갈래를 하나의 벡터로 섞은 뒤 잰 거리다.
+
+```
+z_voice   eGeMAPS 88차원 전부      ← 지금까지 8개만 쓰고 80개를 버렸다
+z_text    발화 의미 벡터 (Solar)   ← ★언어 축이 처음으로 판정에 들어온다
+hr        심박 (신뢰도 통과 시)
+```
+
+표준화 기준은 **default(중립 앵커)**다 — 절대 위치가 아니라 "평소로부터 얼마나
+떨어졌는가"를 벡터로 표현해 두 축의 분리를 잠재공간에서도 지킨다.
+
+⚠️ **크기만 나오고 방향은 안 나온다.** 어느 쪽이 선호인지는 라벨이 있어야 학습할 수
+있고, 그 라벨은 `annotation.self_lean_option_id`가 세션마다 하나씩 만든다.
+지금 방향은 여전히 규칙 기반 부호표가 낸다 (`OPEN_QUESTIONS.md` Q8).
 
 ### `baseline_source` 교체 지점
 
