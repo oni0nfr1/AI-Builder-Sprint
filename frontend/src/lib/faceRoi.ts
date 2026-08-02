@@ -142,6 +142,18 @@ export class RoiSampler {
 
 let landmarkerPromise: Promise<FaceLandmarker> | null = null;
 
+/*
+ * 공개 CDN 주소라 비밀이 아니다. .env 없이도 돌아가야 한다 —
+ * 값이 undefined면 MediaPipe 초기화가 실패하고 고정 중앙 ROI로 조용히 폴백해서,
+ * 얼굴 추적이 죽은 줄 모르는 채 세션이 끝난다.
+ */
+const WASM_URL =
+  import.meta.env.VITE_MEDIAPIPE_WASM_URL ??
+  'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/wasm';
+const MODEL_URL =
+  import.meta.env.VITE_FACE_LANDMARKER_MODEL_URL ??
+  'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
+
 /** 모델은 한 번만 받아 세션 내내 재사용한다. */
 function loadLandmarker(): Promise<FaceLandmarker> {
   if (!landmarkerPromise) {
@@ -149,14 +161,9 @@ function loadLandmarker(): Promise<FaceLandmarker> {
       const { FilesetResolver, FaceLandmarker: Landmarker } = await import(
         '@mediapipe/tasks-vision'
       );
-      const fileset = await FilesetResolver.forVisionTasks(
-        import.meta.env.VITE_MEDIAPIPE_WASM_URL,
-      );
+      const fileset = await FilesetResolver.forVisionTasks(WASM_URL);
       return Landmarker.createFromOptions(fileset, {
-        baseOptions: {
-          modelAssetPath: import.meta.env.VITE_FACE_LANDMARKER_MODEL_URL,
-          delegate: 'GPU',
-        },
+        baseOptions: { modelAssetPath: MODEL_URL, delegate: 'GPU' },
         runningMode: 'VIDEO',
         numFaces: 1,
       });
