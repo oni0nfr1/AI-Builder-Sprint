@@ -152,8 +152,20 @@ def test_known_axes_are_offered_to_the_llm() -> None:
     message = decision_service._user_message("이직할까", ["안정 vs 성장", "관계 vs 자율"])
     assert "안정 vs 성장" in message and "관계 vs 자율" in message
     assert "이직할까" in message
-    # 억지로 끼워맞추지 말라는 단서가 함께 있어야 한다.
-    assert "뜻이 다르면" in message
+
+
+def test_prompt_pushes_back_against_forcing() -> None:
+    """★목록을 그냥 보여주기만 하면 LLM 이 모든 고민을 거기에 우겨넣는다.
+
+    실측: 목록만 보여줬더니 서로 다른 고민 8건이 **전부** 기존 축으로 갔다.
+    "부모님께 사실대로 말할지"가 '관계 vs 자율'이 되고 "월세 vs 전세"가
+    '안정 vs 변화'가 됐다 — 없는 가치관을 만들어내는 것이다.
+    """
+    message = decision_service._user_message("x", ["안정 vs 성장"])
+    # 먼저 스스로 정하게 하고, 새 축이 정상이라고 못박아야 앵커링이 풀린다.
+    assert "먼저 스스로 정하라" in message
+    assert "축이 나오는 것이 정상" in message
+    assert "거의 같은 뜻" in message
 
 
 def test_no_known_axes_means_plain_input() -> None:
