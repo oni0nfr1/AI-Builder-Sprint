@@ -9,6 +9,7 @@ import type {
   Annotation,
   ApiResponse,
   Capture,
+  Conviction,
   Decision,
   Features,
   Report,
@@ -86,4 +87,8 @@ export const saveRetrospective = (
 ): Promise<Retrospective> =>
   post(`/sessions/${sessionId}/retrospective`, retrospective);
 
+/** [8] 2층 — 고민들을 가로질러 반복되는 축. */
 export const fetchValueMap = (): Promise<ValueMap> => request('/value-map');
+
+/** [8] 3층 — 그때 자기 입으로 말한 것과 지금의 만족도를 대조한다. */
+export const fetchConviction = (): Promise<Conviction> => request('/conviction');

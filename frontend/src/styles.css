@@ -294,3 +294,123 @@ body {
   padding: 0.75rem 1rem;
   text-align: left;
 }
+
+/* ── [8] 축적 뷰 ──────────────────────────────────────── */
+
+.layer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--line);
+}
+
+.layer__title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.axes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+
+.axis {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.axis__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.axis__name {
+  font-weight: 600;
+}
+
+.axis__count {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.axis__pattern {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+/* 굳어진 축과 갈리는 축이 한눈에 구별돼야 한다 */
+.sidebar {
+  display: flex;
+  height: 1.6rem;
+  border-radius: 0.4rem;
+  overflow: hidden;
+  background: #0d0d11;
+}
+
+.sidebar__part {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.sidebar__part--a {
+  background: rgba(124, 156, 255, 0.85);
+  color: #0b0b0f;
+}
+
+.sidebar__part--b {
+  background: rgba(124, 156, 255, 0.22);
+  color: var(--text);
+}
+
+.sidebar__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0 0.4rem;
+}
+
+.conviction {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.conviction__group {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: baseline;
+  gap: 0.75rem;
+  padding: 0.6rem 0.8rem;
+  background: #0d0d11;
+  border-radius: 0.5rem;
+}
+
+.conviction__label {
+  font-size: 0.9rem;
+}
+
+.conviction__value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.conviction__count {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}

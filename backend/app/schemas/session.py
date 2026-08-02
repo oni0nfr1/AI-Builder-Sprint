@@ -63,7 +63,18 @@ class ValueAxisEntry(BaseModel):
     axis: str
     session_ids: list[str] = Field(default_factory=list)
     lean_pattern: str = ""
-    """이 축에서 반복적으로 어느 쪽으로 기울었는가."""
+    """이 축에서 반복적으로 어느 쪽으로 기울었는가. 관찰 문장."""
+
+    side_counts: dict[str, int] = Field(default_factory=dict)
+    """극별 횟수. 예: {"성장": 5, "안정": 1}
+
+    화면이 비율 막대를 그리려면 문장이 아니라 숫자가 필요하다. 문장만으로는
+    "굳어진 축"과 "갈리는 축"이 한눈에 구별되지 않는데, 그 구별이 가치관 지도의
+    핵심이다.
+    """
+
+    unlabelled_count: int = 0
+    """극을 붙이지 못해 집계에서 빠진 기록 수. 조용히 빼지 않는다."""
 
 
 class ValueMap(BaseModel):

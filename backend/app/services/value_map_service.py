@@ -31,25 +31,28 @@ def build_value_map() -> ValueMap:
 
     axes = []
     for axis, entries in sorted(by_axis.items()):
+        counts, unlabelled = _count_sides(entries)
         axes.append(
             ValueAxisEntry(
                 axis=axis,
                 session_ids=[s.id for s, _ in entries],
-                lean_pattern=_summarize(entries),
+                side_counts=counts,
+                unlabelled_count=unlabelled,
+                lean_pattern=_summarize(counts, unlabelled),
             )
         )
     return ValueMap(axes=axes)
 
 
-def _summarize(entries: list[tuple[Session, Decision]]) -> str:
-    """이 축에서 사용자가 반복적으로 어느 쪽을 택했나.
+def _count_sides(entries: list[tuple[Session, Decision]]) -> tuple[dict[str, int], int]:
+    """극별 횟수와, 극을 붙이지 못해 빠진 기록 수.
 
     ★세는 것은 선택지 라벨이 아니라 `axis_side`(축의 극)다.
     라벨은 고민마다 다르다("이직한다" / "대학원 간다" / "사이드를 시작한다").
     라벨을 세면 "1회, 1회, 1회"가 나올 뿐 축을 가로지르는 패턴이 보이지 않는다.
 
-    관찰만 서술한다 — "당신은 성장을 중시하는 사람입니다" 같은 규정은 하지 않는다.
-    그건 사용자가 지도를 보고 스스로 내릴 결론이다.
+    기준은 우리 판정이 아니라 `annotation.self_lean_option_id` —
+    사용자가 자기 입으로 말한 것이다. 자기가 말한 것만이 자기 가치관이다.
     """
     counts: dict[str, int] = defaultdict(int)
     unlabelled = 0
@@ -65,6 +68,17 @@ def _summarize(entries: list[tuple[Session, Decision]]) -> str:
             else:
                 unlabelled += 1
 
+    # 많은 쪽부터. 화면이 이 순서 그대로 막대를 그린다.
+    ordered = dict(sorted(counts.items(), key=lambda item: -item[1]))
+    return ordered, unlabelled
+
+
+def _summarize(counts: dict[str, int], unlabelled: int) -> str:
+    """관찰 한 문장.
+
+    "당신은 성장을 중시하는 사람입니다" 같은 규정은 하지 않는다.
+    그건 사용자가 지도를 보고 스스로 내릴 결론이다.
+    """
     if not counts:
         if unlabelled:
             # 기록은 있는데 축을 나누지 못한 경우다. "부족하다"고 하면 사실과 다르다.
@@ -72,8 +86,9 @@ def _summarize(entries: list[tuple[Session, Decision]]) -> str:
         return "아직 기록이 부족해요."
 
     total = sum(counts.values())
-    parts = [f"{side} {n}회" for side, n in sorted(counts.items(), key=lambda x: -x[1])]
-    summary = f"{total}번의 기록 중 — " + ", ".join(parts)
+    summary = f"{total}번의 기록 중 — " + ", ".join(
+        f"{side} {n}회" for side, n in counts.items()
+    )
     if unlabelled:
         # 극을 못 붙인 기록은 조용히 빼지 않고 밝힌다. 지도의 신뢰도는 사용자가 판단한다.
         summary += f" (축을 나누지 못한 기록 {unlabelled}건 제외)"

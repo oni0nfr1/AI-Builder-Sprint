@@ -279,6 +279,10 @@ export interface ValueAxisEntry {
   session_ids: string[];
   /** 관찰만. "5번의 기록 중 — 성장 4회, 안정 1회". 규정하지 않는다. */
   lean_pattern: string;
+  /** 극별 횟수. 많은 쪽부터. 예: { "성장": 5, "안정": 1 } */
+  side_counts: Record<string, number>;
+  /** 극을 붙이지 못해 집계에서 빠진 기록 수. 조용히 빼지 않는다. */
+  unlabelled_count: number;
 }
 
 /** 가치관 지도 (2층). `GET /value-map`. 축 추출 방식은 OPEN_QUESTIONS Q5. */

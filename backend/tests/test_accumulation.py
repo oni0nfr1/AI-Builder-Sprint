@@ -218,3 +218,29 @@ def test_conviction_ignores_retrospectives_without_self_statement() -> None:
 def test_empty_history_is_safe() -> None:
     assert build_value_map().axes == []
     assert build_conviction().total_retrospectives == 0
+
+
+def test_side_counts_are_ordered_by_frequency() -> None:
+    """화면이 이 순서대로 막대를 그린다. 많은 쪽이 먼저 와야 읽힌다."""
+    _record("1", axis="안정 vs 성장", labels=("남는다", "옮긴다"),
+            sides=("안정", "성장"), self_lean=1)
+    _record("2", axis="안정 vs 성장", labels=("쉰다", "시작한다"),
+            sides=("안정", "성장"), self_lean=1)
+    _record("3", axis="안정 vs 성장", labels=("유지", "전환"),
+            sides=("안정", "성장"), self_lean=0)
+
+    axis = build_value_map().axes[0]
+    assert list(axis.side_counts.items()) == [("성장", 2), ("안정", 1)]
+    assert axis.unlabelled_count == 0
+
+
+def test_unlabelled_count_is_exposed_separately() -> None:
+    """문장에만 묻어두면 화면이 비율 막대의 신뢰도를 표시할 수 없다."""
+    _record("1", axis="안정 vs 성장", labels=("남는다", "옮긴다"),
+            sides=("안정", "성장"), self_lean=1)
+    _record("2", axis="안정 vs 성장", labels=("A", "B"),
+            sides=(None, None), self_lean=0)
+
+    axis = build_value_map().axes[0]
+    assert axis.side_counts == {"성장": 1}
+    assert axis.unlabelled_count == 1

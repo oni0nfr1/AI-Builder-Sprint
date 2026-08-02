@@ -331,9 +331,16 @@ Retrospective {
 
 ```ts
 ValueMap {                          // 가치관 지도 (2층)   GET /value-map
-  axes: { axis: string, session_ids: string[], lean_pattern: string }[]
+  axes: {
+    axis: string                    // "안정 vs 성장"
+    session_ids: string[]
+    lean_pattern: string            // 관찰 문장: "5번의 기록 중 — 성장 5회"
+    side_counts: { [side: string]: number }   // { "성장": 5 } — 많은 쪽부터
+    unlabelled_count: number        // 극을 못 붙여 빠진 기록 수
+  }[]
 }
 ```
+`side_counts`는 화면이 비율 막대를 그리기 위한 것이다. 문장만으로는 **"굳어진 축"과 "갈리는 축"이 한눈에 구별되지 않는데, 그 구별이 가치관 지도의 핵심이다.**
 `Decision.value_axis`를 가로질러 집계한다. 자세한 축 추출 방식은 `OPEN_QUESTIONS.md` Q5.
 
 **세는 것은 선택지 라벨이 아니라 `Option.axis_side`(축의 극)다.** 라벨은 고민마다 다르므로 라벨을 세면 "1회, 1회, 1회"가 나올 뿐이다. 극을 못 붙인 기록은 조용히 빼지 않고 `lean_pattern`에 몇 건 제외됐는지 밝힌다 — 지도의 신뢰도는 사용자가 판단한다.

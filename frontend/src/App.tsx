@@ -1,8 +1,9 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { CaptureStage } from './components/CaptureStage';
 import { useSessionFlow } from './hooks/useSessionFlow';
 import { describeQuality } from './lib/faceRoi';
 import { totalDurationSec } from './lib/sessionFlow';
+import { AccumulationView } from './screens/AccumulationView';
 import { DecisionInput } from './screens/DecisionInput';
 import { ReportView } from './screens/ReportView';
 
@@ -10,6 +11,12 @@ export default function App() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const { state, start, runAll, submitAnnotation, reset, stopMedia } =
     useSessionFlow(videoRef);
+
+  /*
+   * [8] 축적 뷰는 세션 흐름과 별개다. 세션은 한 건의 기록이고 축적은 그 기록들을
+   * 가로지르는 것이라, 상태 머신에 단계로 끼워 넣으면 둘이 얽힌다.
+   */
+  const [showAccumulation, setShowAccumulation] = useState(false);
 
   // 탭을 떠나거나 앱이 사라져도 카메라·마이크가 켜져 있으면 안 된다.
   useEffect(() => stopMedia, [stopMedia]);
@@ -40,8 +47,19 @@ export default function App() {
         )}
       </div>
 
-      {(state.phase === 'input' || state.phase === 'preparing') && (
-        <DecisionInput onSubmit={start} disabled={state.phase === 'preparing'} />
+      {showAccumulation && <AccumulationView onBack={() => setShowAccumulation(false)} />}
+
+      {!showAccumulation && (state.phase === 'input' || state.phase === 'preparing') && (
+        <>
+          <DecisionInput onSubmit={start} disabled={state.phase === 'preparing'} />
+          <button
+            className="button button--ghost"
+            type="button"
+            onClick={() => setShowAccumulation(true)}
+          >
+            쌓인 기록 보기
+          </button>
+        </>
       )}
 
       {state.phase === 'ready' && state.decision && (
@@ -100,7 +118,7 @@ export default function App() {
         />
       )}
 
-      {state.phase === 'done' && (
+      {!showAccumulation && state.phase === 'done' && (
         <div className="panel">
           <h1 className="panel__title">기록했어요.</h1>
           <p className="panel__lead">
@@ -109,6 +127,13 @@ export default function App() {
           </p>
           <button className="button" type="button" onClick={reset}>
             새 고민 기록하기
+          </button>
+          <button
+            className="button button--ghost"
+            type="button"
+            onClick={() => setShowAccumulation(true)}
+          >
+            쌓인 기록 보기
           </button>
         </div>
       )}
