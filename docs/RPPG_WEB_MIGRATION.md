@@ -19,8 +19,9 @@
 - `speak` 캡처와 오디오/STT 계약은 변경하지 않는다.
 
 `rppg_measurement`에는 원본 프레임이나 RGB 샘플을 포함하지 않는다. BPM,
-confidence, signal quality, estimator agreement, reason code, 안정 샘플 수와 실제
-측정 시간만 포함한다. 패키지의 `snr` 단위가 현재 서버의 `snr_db` 계약과 같다고
+confidence, signal quality, estimator agreement, reason code와 안정 샘플 수만
+포함한다. 측정 시간은 바깥 `Capture.duration_sec` 하나로 관리한다. 패키지의
+`snr` 단위가 현재 서버의 `snr_db` 계약과 같다고
 보장할 수 없으므로 서로 매핑하지 않는다.
 
 ## 프론트엔드 동작
@@ -63,12 +64,12 @@ confidence, signal quality, estimator agreement, reason code, 안정 샘플 수�
 
 - [x] 프론트엔드 TypeScript 검사와 production build
 - [x] Vite 6 빌드 결과에 JS glue와 WASM 자산 포함
-- [x] 백엔드 전체 테스트 97개 통과
+- [x] 백엔드 전체 테스트 105개 통과
 - [x] 클라이언트 측정값을 `HeartRateFeatures`로 변환하는 서비스 테스트
 - [x] 낮은 confidence가 기존 규칙대로 BPM을 판정에서 제외하는 테스트 유지
 - [x] 기존 RGB 시계열 E2E 테스트를 유지해 호환 경로 확인
-- [ ] 실제 `/captures` 요청에 대한 새 계약 통합 테스트
-- [ ] 실제 브라우저에서 WASM 로드, 얼굴 안내, 10초 이후 내부 측정값 생성 확인
+- [x] 실제 `/captures` 요청에 대한 새 계약 통합 테스트
+- [x] 실제 브라우저에서 WASM 로드, 얼굴 안내, 10초 이후 내부 측정값 생성 확인
 - [ ] 네트워크 요청에 영상/RGB가 없고 `rppg_measurement`만 있는지 확인
 
 문제가 생기면 새 프론트엔드 어댑터와 `rppg_measurement` 전송만 되돌려도 서버의
