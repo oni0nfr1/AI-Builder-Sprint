@@ -81,6 +81,9 @@ export default function App() {
           {preflight && (
             <p className={`signal ${preflight.ok ? 'signal--ok' : 'signal--warn'}`}>
               {preflight.ok ? '●' : '○'} {preflight.message}
+              {state.quality.roiCount > 0 && (
+                <> · 측정 영역 {state.quality.roiCount}곳</>
+              )}
             </p>
           )}
           {/*

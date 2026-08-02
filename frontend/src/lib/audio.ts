@@ -168,6 +168,12 @@ async function resample(buffer: AudioBuffer): Promise<Float32Array> {
 export async function requestMedia(): Promise<MediaStream> {
   return navigator.mediaDevices.getUserMedia({
     audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: false },
-    video: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30 } },
+    video: {
+      // ROI 픽셀이 많을수록 평균이 잡음을 지운다 (노이즈는 1/√N 로 준다).
+      // 실측 맥동 진폭이 0.19% 수준이라 픽셀 수가 곧 신호 품질이다.
+      width: { ideal: 1280 },
+      height: { ideal: 720 },
+      frameRate: { ideal: 30 },
+    },
   });
 }

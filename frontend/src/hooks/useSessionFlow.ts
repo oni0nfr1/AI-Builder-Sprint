@@ -14,7 +14,12 @@ import {
   uploadCapture,
 } from '../api/client';
 import { AudioRecorder, requestMedia } from '../lib/audio';
-import { RoiSampler, recordRgbSeries, type RoiQuality } from '../lib/faceRoi';
+import {
+  RoiSampler,
+  lockCameraSettings,
+  recordRgbSeries,
+  type RoiQuality,
+} from '../lib/faceRoi';
 import { buildSteps, type CaptureStep } from '../lib/sessionFlow';
 import type { Annotation, Decision, Report } from '../types/contracts';
 
@@ -39,7 +44,7 @@ export interface FlowState {
   errorMessage: string | null;
 }
 
-const IDLE_QUALITY: RoiQuality = { brightness: 0, faceDetected: false };
+const IDLE_QUALITY: RoiQuality = { brightness: 0, faceDetected: false, roiCount: 0 };
 
 const INITIAL: FlowState = {
   phase: 'input',
@@ -113,6 +118,15 @@ export function useSessionFlow(videoRef: React.RefObject<HTMLVideoElement>) {
         await video.play();
 
         samplerRef.current = await RoiSampler.create(video);
+
+        // 자동 노출·화이트밸런스를 잠근다 — 켜져 있으면 카메라가 맥동을 상쇄한다.
+        // 프리플라이트 전에 걸어야 사용자가 잠긴 상태의 밝기를 보고 조명을 맞춘다.
+        const locked = await lockCameraSettings(stream);
+        console.info(
+          locked.length
+            ? `카메라 자동보정 잠금: ${locked.join(', ')}`
+            : '카메라 자동보정 잠금을 지원하지 않는 기기입니다 — 조명을 일정하게 유지해주세요.',
+        );
 
         setState((prev) => ({
           ...prev,

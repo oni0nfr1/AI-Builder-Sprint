@@ -12,15 +12,31 @@
 import type { FaceLandmarker } from '@mediapipe/tasks-vision';
 import type { RgbSample } from '../types/contracts';
 
-/** MediaPipe Face Mesh의 이마 영역 랜드마크. */
-const FOREHEAD_LANDMARKS = [10, 67, 69, 104, 108, 151, 297, 299, 333, 337, 338];
+/**
+ * MediaPipe Face Mesh 랜드마크로 잡는 피부 영역들.
+ *
+ * ★이마만 쓰지 않고 볼까지 더한다. 평균 내는 픽셀이 많을수록 잡음이 1/√N 로
+ * 줄어드는데, 실측 맥동 진폭이 0.19% 수준이라 이 이득이 그대로 SNR 이 된다.
+ * 이마는 표정 근육 영향이 가장 적어 여전히 주력이고, 볼은 보강이다.
+ */
+const ROI_LANDMARKS: { name: string; indices: number[]; inset: number }[] = [
+  { name: 'forehead', indices: [10, 67, 69, 104, 108, 151, 297, 299, 333, 337, 338], inset: 0.15 },
+  // 볼은 코·입·머리카락 경계가 가까워 더 크게 줄여 안쪽만 쓴다.
+  { name: 'cheekL', indices: [50, 101, 117, 118, 123, 187, 205, 36], inset: 0.25 },
+  { name: 'cheekR', indices: [280, 330, 346, 347, 352, 411, 425, 266], inset: 0.25 },
+];
 
 const SAMPLE_CANVAS_SIZE = 64;
+
+/** 이보다 작으면 얼굴이 멀거나 검출이 흔들린 것이다. 평균에 넣으면 잡음만 는다. */
+const MIN_ROI_PIXELS = 12;
 
 export interface RoiQuality {
   /** ROI 평균 밝기 0~255. 너무 어둡거나 포화되면 신호가 안 나온다. */
   brightness: number;
   faceDetected: boolean;
+  /** 이번 프레임에 실제로 쓰인 영역 수 (이마 + 양 볼이면 3). 진단용. */
+  roiCount: number;
 }
 
 /**
@@ -33,6 +49,46 @@ export const BRIGHTNESS_TOO_BRIGHT = 235;
 export interface QualityVerdict {
   ok: boolean;
   message: string;
+}
+
+/**
+ * 카메라 자동보정을 잠근다. ★rPPG 품질에 직결된다.
+ *
+ * 오디오에서 `autoGainControl: false` 를 한 것과 정확히 같은 이유다.
+ * rPPG 는 피부 밝기의 미세 변동(실측 0.19% 수준)을 재는데, 자동 노출과
+ * 화이트밸런스가 켜져 있으면 카메라가 그 변동을 실시간으로 상쇄한다 —
+ * 측정 대상을 카메라가 지우는 셈이다.
+ *
+ * 자동보정이 자리를 잡은 뒤에 잠가야 하므로 잠깐 기다린 다음 건다.
+ * 지원하지 않는 카메라가 많으므로 capabilities 를 보고 되는 것만 적용한다.
+ */
+export async function lockCameraSettings(stream: MediaStream): Promise<string[]> {
+  const [track] = stream.getVideoTracks();
+  if (!track) return [];
+
+  // 자동 노출·화이트밸런스가 수렴할 시간을 준다. 켜자마자 잠그면 어두운 채로 굳는다.
+  await new Promise((resolve) => setTimeout(resolve, 1200));
+
+  // 표준 타입에 없는 확장 필드다 (Image Capture 명세).
+  const capabilities = track.getCapabilities() as Record<string, unknown>;
+  const wanted: Record<string, string> = {
+    exposureMode: 'manual',
+    whiteBalanceMode: 'manual',
+    focusMode: 'manual',
+  };
+
+  const locked: string[] = [];
+  for (const [key, value] of Object.entries(wanted)) {
+    const supported = capabilities[key];
+    if (!Array.isArray(supported) || !supported.includes(value)) continue;
+    try {
+      await track.applyConstraints({ advanced: [{ [key]: value }] } as MediaTrackConstraints);
+      locked.push(key);
+    } catch {
+      // 이 카메라가 거부했다. 나머지는 계속 시도한다.
+    }
+  }
+  return locked;
 }
 
 /** 심박은 상상(정지) 구간에서만 재므로 이 판단도 그 구간에만 의미가 있다. */
@@ -54,11 +110,52 @@ export function describeQuality(quality: RoiQuality): QualityVerdict {
   return { ok: true, message: '신호가 잘 잡히고 있어요.' };
 }
 
+interface RoiRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** 랜드마크들을 감싸는 사각형에서 경계를 안쪽으로 줄인 영역. */
+function boundingRect(
+  points: { x: number; y: number }[],
+  width: number,
+  height: number,
+  inset: number,
+): RoiRect | null {
+  const xs = points.map((p) => p.x * width);
+  const ys = points.map((p) => p.y * height);
+  const x0 = Math.min(...xs);
+  const x1 = Math.max(...xs);
+  const y0 = Math.min(...ys);
+  const y1 = Math.max(...ys);
+
+  // 경계의 머리카락·눈썹·콧방울이 섞이지 않도록 안쪽으로 줄인다.
+  const dx = (x1 - x0) * inset;
+  const dy = (y1 - y0) * inset;
+  const rect = {
+    x: x0 + dx,
+    y: y0 + dy,
+    width: x1 - x0 - 2 * dx,
+    height: y1 - y0 - 2 * dy,
+  };
+
+  // 화면 밖으로 나가면 잘라낸다. 얼굴이 가장자리에 있을 때 생긴다.
+  const left = Math.max(0, rect.x);
+  const top = Math.max(0, rect.y);
+  const right = Math.min(width, rect.x + rect.width);
+  const bottom = Math.min(height, rect.y + rect.height);
+  if (right - left < MIN_ROI_PIXELS || bottom - top < MIN_ROI_PIXELS) return null;
+
+  return { x: left, y: top, width: right - left, height: bottom - top };
+}
+
 export class RoiSampler {
   private canvas = document.createElement('canvas');
   private ctx: CanvasRenderingContext2D;
   private landmarker: FaceLandmarker | null = null;
-  private lastQuality: RoiQuality = { brightness: 0, faceDetected: false };
+  private lastQuality: RoiQuality = { brightness: 0, faceDetected: false, roiCount: 0 };
 
   // recordRgbSeries가 프레임 전진 여부를 보려면 요소에 접근할 수 있어야 한다.
   private constructor(readonly video: HTMLVideoElement) {
@@ -67,6 +164,9 @@ export class RoiSampler {
     const ctx = this.canvas.getContext('2d', { willReadFrequently: true });
     if (!ctx) throw new Error('캔버스를 만들 수 없습니다.');
     this.ctx = ctx;
+    // 축소할 때 원본 픽셀을 제대로 평균하게 한다. 이 평균이 곧 잡음 억제다.
+    this.ctx.imageSmoothingEnabled = true;
+    this.ctx.imageSmoothingQuality = 'high';
   }
 
   static async create(video: HTMLVideoElement): Promise<RoiSampler> {
@@ -84,25 +184,59 @@ export class RoiSampler {
     return this.lastQuality;
   }
 
-  /** 현재 프레임의 ROI 평균 RGB. 프레임이 아직 없으면 null. */
+  /**
+   * 현재 프레임의 ROI 평균 RGB. 프레임이 아직 없으면 null.
+   *
+   * 여러 ROI를 **넓이로 가중 평균**한다 — 전체 피부 픽셀을 한꺼번에 평균한 것과
+   * 같아지도록. 넓은 영역이 그만큼 많은 실제 픽셀을 담고 있기 때문이다.
+   */
   sample(timestampMs: number): { r: number; g: number; b: number } | null {
     const { video } = this;
     if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return null;
     if (!video.videoWidth || !video.videoHeight) return null;
 
-    const roi = this.resolveRoi(timestampMs);
+    const { rects, fromFace } = this.resolveRois(timestampMs);
+    if (rects.length === 0) return null;
+
+    let r = 0;
+    let g = 0;
+    let b = 0;
+    let totalWeight = 0;
+    let used = 0;
+
+    for (const rect of rects) {
+      const mean = this.meanOf(rect);
+      if (mean === null) continue;
+      const weight = rect.width * rect.height;
+      r += mean.r * weight;
+      g += mean.g * weight;
+      b += mean.b * weight;
+      totalWeight += weight;
+      used += 1;
+    }
+    if (totalWeight <= 0) return null;
+
+    r /= totalWeight;
+    g /= totalWeight;
+    b /= totalWeight;
+
+    this.lastQuality = { brightness: (r + g + b) / 3, faceDetected: fromFace, roiCount: used };
+    return { r, g, b };
+  }
+
+  private meanOf(rect: RoiRect): { r: number; g: number; b: number } | null {
+    if (rect.width < MIN_ROI_PIXELS || rect.height < MIN_ROI_PIXELS) return null;
     this.ctx.drawImage(
-      video,
-      roi.x,
-      roi.y,
-      roi.width,
-      roi.height,
+      this.video,
+      rect.x,
+      rect.y,
+      rect.width,
+      rect.height,
       0,
       0,
       SAMPLE_CANVAS_SIZE,
       SAMPLE_CANVAS_SIZE,
     );
-
     const { data } = this.ctx.getImageData(0, 0, SAMPLE_CANVAS_SIZE, SAMPLE_CANVAS_SIZE);
     let r = 0;
     let g = 0;
@@ -113,16 +247,11 @@ export class RoiSampler {
       g += data[i + 1];
       b += data[i + 2];
     }
-    r /= pixels;
-    g /= pixels;
-    b /= pixels;
-
-    this.lastQuality = { brightness: (r + g + b) / 3, faceDetected: roi.fromFace };
-    return { r, g, b };
+    return { r: r / pixels, g: g / pixels, b: b / pixels };
   }
 
-  /** 얼굴을 찾으면 이마 영역, 못 찾으면 화면 중앙 상단 고정 영역. */
-  private resolveRoi(timestampMs: number) {
+  /** 얼굴을 찾으면 이마 + 양 볼, 못 찾으면 화면 중앙 상단 고정 영역 하나. */
+  private resolveRois(timestampMs: number): { rects: RoiRect[]; fromFace: boolean } {
     const width = this.video.videoWidth;
     const height = this.video.videoHeight;
 
@@ -131,26 +260,15 @@ export class RoiSampler {
         const result = this.landmarker.detectForVideo(this.video, timestampMs);
         const landmarks = result.faceLandmarks?.[0];
         if (landmarks?.length) {
-          const points = FOREHEAD_LANDMARKS.map((i) => landmarks[i]).filter(Boolean);
-          if (points.length) {
-            const xs = points.map((p) => p.x * width);
-            const ys = points.map((p) => p.y * height);
-            // 경계의 머리카락·눈썹이 섞이지 않도록 살짝 안쪽으로 줄인다.
-            const inset = 0.15;
-            const x0 = Math.min(...xs);
-            const x1 = Math.max(...xs);
-            const y0 = Math.min(...ys);
-            const y1 = Math.max(...ys);
-            const dx = (x1 - x0) * inset;
-            const dy = (y1 - y0) * inset;
-            return {
-              x: x0 + dx,
-              y: y0 + dy,
-              width: Math.max(x1 - x0 - 2 * dx, 1),
-              height: Math.max(y1 - y0 - 2 * dy, 1),
-              fromFace: true,
-            };
+          const rects: RoiRect[] = [];
+          for (const region of ROI_LANDMARKS) {
+            const points = region.indices.map((i) => landmarks[i]).filter(Boolean);
+            if (points.length < 3) continue;
+            const rect = boundingRect(points, width, height, region.inset);
+            if (rect) rects.push(rect);
           }
+          // 볼을 못 잡아도 이마 하나면 계속 간다 — 예전 동작 그대로다.
+          if (rects.length > 0) return { rects, fromFace: true };
         }
       } catch (error) {
         console.warn('얼굴 검출 실패 — 이번 프레임은 고정 ROI를 씁니다.', error);
@@ -158,10 +276,14 @@ export class RoiSampler {
     }
 
     return {
-      x: width * 0.35,
-      y: height * 0.18,
-      width: width * 0.3,
-      height: height * 0.14,
+      rects: [
+        {
+          x: width * 0.35,
+          y: height * 0.18,
+          width: width * 0.3,
+          height: height * 0.14,
+        },
+      ],
       fromFace: false,
     };
   }
