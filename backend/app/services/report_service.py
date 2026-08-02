@@ -21,6 +21,7 @@ from app.schemas.common import MetricKey
 from app.schemas.decision import Decision
 from app.schemas.report import DEFAULT_BODY_TAGS, Report
 from app.schemas.session import Session
+from app.services.korean import josa
 from app.services.llm import chat_json
 
 _METRIC_LABEL: dict[MetricKey, str] = {
@@ -50,6 +51,8 @@ _SYSTEM = """당신은 '직관 노트'의 메타인지 거울이다. 사용자�
 - 감정이나 상태를 단정하는 라벨 ("불안하시군요", "확신이 있으시네요")
 - 원인 추정 ("~때문에 긴장하신 것 같아요")
 - 조언, 제안, 격려, 위로
+- 내부 판정 용어를 그대로 쓰는 것 (flat, calm, aroused, confidence 등)
+- 선택지를 '선택지 A', '옵션 B' 같은 기호로 부르는 것 — 반드시 실제 이름을 쓴다
 
 해야 할 것:
 - observations: 측정된 변화를 사용자의 일상 언어로 번역해 사실만 서술한다.
@@ -108,7 +111,8 @@ def _observations(verdict: Verdict, decision: Decision) -> list[str]:
 
     if not ranked:
         return [
-            f"'{label_a}'을(를) 말할 때와 '{label_b}'을(를) 말할 때, "
+            f"'{label_a}'{josa(label_a, '을/를')} 말할 때와 "
+            f"'{label_b}'{josa(label_b, '을/를')} 말할 때, "
             "측정된 신호의 차이가 거의 없었어요."
         ]
 
@@ -118,8 +122,8 @@ def _observations(verdict: Verdict, decision: Decision) -> list[str]:
         higher, lower = (label_a, label_b) if value > 0 else (label_b, label_a)
         percent = round(abs(value) * 100)
         lines.append(
-            f"'{higher}'을(를) 말할 때 {metric}이(가) "
-            f"'{lower}'을(를) 말할 때보다 {percent}% 높았어요."
+            f"'{higher}'{josa(higher, '을/를')} 말할 때 {metric}{josa(metric, '이/가')} "
+            f"'{lower}'{josa(lower, '을/를')} 말할 때보다 {percent}% 높았어요."
         )
     return lines
 
@@ -129,7 +133,7 @@ def _tagging_question(verdict: Verdict, decision: Decision) -> str:
     match verdict.preference.lean:
         case Lean.A | Lean.B:
             label = _label_of(decision, verdict.preference.lean_option_id)
-            return f"'{label}'을(를) 말할 때, 몸에서 뭐가 느껴지셨어요?"
+            return f"'{label}'{josa(label, '을/를')} 말할 때, 몸에서 뭐가 느껴지셨어요?"
         case Lean.CONTRADICTORY:
             return (
                 "목소리와 심장이 서로 다른 방향을 가리켰어요. "
@@ -178,13 +182,71 @@ def _llm_input(verdict: Verdict, delta: Delta, decision: Decision, session: Sess
         f"선택지 B: {decision.options[1].label}\n"
         f"\n[내부 판정 — 절대 발화 금지]\n"
         f"기울어진 쪽: {lean_label} (신뢰도 {verdict.preference.confidence:.2f})\n"
-        f"상태: {verdict.state.label.value}\n"
+        # ★내부 enum(flat/calm/aroused)을 넘기지 않는다. 그대로 받아 적어서
+        #   "현재 'flat' 상태에서..." 같은 문장이 사용자에게 나간 적이 있다.
+        f"상태 고지 문안(이 뜻을 그대로 쓰되 표현은 다듬어도 된다): {_state_note(verdict)}\n"
         f"\n[측정된 변화 — A 기준, B 대비]\n"
         + "\n".join(f"- {k}: {v}" for k, v in measured.items())
-        + (f"\n\n[사용자 발화]\n" + "\n".join(transcripts) if transcripts else "")
+        + ("\n\n[사용자 발화]\n" + "\n".join(transcripts) if transcripts else "")
         + f"\n\n주의: 신호가 강한 쪽은 '{lean_label}'이다. "
-        "이 사실을 말하지 말고, 그쪽을 향한 질문으로만 주의를 이끌어라."
+        "이 사실을 말하지 말고, 그쪽을 향한 질문으로만 주의를 이끌어라.\n"
+        f"선택지는 반드시 '{decision.options[0].label}' / "
+        f"'{decision.options[1].label}'라는 실제 이름으로 부르라. "
+        "'선택지 A', '옵션 B' 같은 기호로 부르면 사용자가 자기 고민을 알아볼 수 없다."
     )
+
+
+# 내부 판정 용어와 기호형 선택지 호칭. 사용자에게 나가면 안 된다.
+_LEAKED_TERMS = (
+    "flat",
+    "calm",
+    "aroused",
+    "lean_a",
+    "lean_b",
+    "no_lean",
+    "contradictory",
+    "confidence",
+    "magnitude",
+    "verdict",
+    "선택지 a",
+    "선택지 b",
+    "옵션 a",
+    "옵션 b",
+    "option a",
+    "option b",
+)
+
+# 절대 규칙 ①②를 어기는 표현. 테스트(FORBIDDEN)와 같은 뜻을 코드로도 막는다.
+_FORBIDDEN_PHRASES = (
+    "추천",
+    "권해",
+    "권합니다",
+    "낫습니다",
+    "나아요",
+    "선택하세요",
+    "하시는 게 좋",
+    "하는 게 좋",
+    "바람직",
+    "때문에",
+)
+
+
+def _is_clean(text: str) -> bool:
+    """내부 용어·금지 표현이 섞이지 않았는가."""
+    lowered = text.lower()
+    if any(term in lowered for term in _LEAKED_TERMS):
+        return False
+    return not any(phrase in text for phrase in _FORBIDDEN_PHRASES)
+
+
+def _take(generated: object, fallback: str) -> str:
+    """LLM 문장을 검증해 통과한 것만 쓴다. 실패하면 규칙 기반 문장으로 되돌린다.
+
+    ★프롬프트만으로는 못 막는다. 실제로 "현재 'flat' 상태에서 측정된..."이
+    사용자에게 나갔다. 절대 규칙은 코드로 지켜져야 한다.
+    """
+    text = str(generated or "").strip()
+    return text if text and _is_clean(text) else fallback
 
 
 async def build_report(
@@ -195,12 +257,18 @@ async def build_report(
     if not generated:
         return _fallback(verdict, decision)
 
-    observations = [str(o) for o in generated.get("observations", []) if str(o).strip()]
+    # 관찰은 줄 단위로 거른다 — 한 줄이 오염됐다고 나머지 관찰까지 버릴 이유는 없다.
+    observations = [
+        line
+        for line in (str(o).strip() for o in generated.get("observations", []))
+        if line and _is_clean(line)
+    ][:_MAX_OBSERVATIONS]
+
     return Report(
-        state_note=str(generated.get("state_note") or _state_note(verdict)),
+        state_note=_take(generated.get("state_note"), _state_note(verdict)),
         observations=observations or _observations(verdict, decision),
-        tagging_question=str(
-            generated.get("tagging_question") or _tagging_question(verdict, decision)
+        tagging_question=_take(
+            generated.get("tagging_question"), _tagging_question(verdict, decision)
         ),
         # LLM이 어느 선택지를 물었는지는 신뢰하지 않고 판정에서 직접 가져온다.
         tagging_option_id=_tagging_option_id(verdict),
