@@ -15,5 +15,9 @@ soundfile>=0.12
 praat-parselmouth>=0.4      # jitter / shimmer / HNR — Essentia에는 없는 지표
 opensmile>=2.5              # eGeMAPS 88. 설치 실패 시 parselmouth로 폴백 (OPEN_QUESTIONS Q2)
 
+# STT — 브라우저 Web Speech 는 구글 서버에 의존해 환경마다 실패한다 (OPEN_QUESTIONS Q7).
+# 첫 실행 때 모델을 내려받는다 (base 약 145MB). 없어도 파이프라인은 돈다.
+faster-whisper>=1.0
+
 # 테스트
 pytest>=8.3

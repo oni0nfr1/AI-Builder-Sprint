@@ -23,6 +23,7 @@ from app.services import (
     conviction_service,
     feature_service,
     report_service,
+    stt,
     value_map_service,
 )
 
@@ -88,6 +89,10 @@ async def analyze(session_id: str) -> ApiResponse[Report]:
     if raw_decision is None:
         raise HTTPException(status_code=404, detail="고민을 찾을 수 없습니다.")
     decision = Decision.model_validate(raw_decision)
+
+    # 브라우저 STT 가 실패한 구간을 서버에서 채운다. 캡처 업로드가 아니라 여기서
+    # 하는 이유는 stt.fill_missing_transcripts 주석 참조 — 지연을 이 화면에 묻는다.
+    stt.fill_missing_transcripts(session)
 
     delta = analysis_service.compute_delta(session, decision)
     verdict = analysis_service.judge(delta, decision)

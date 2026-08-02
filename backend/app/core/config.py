@@ -17,6 +17,15 @@ class Settings(BaseSettings):
     upstage_base_url: str = "https://api.upstage.ai/v1"
     upstage_model: str = "solar-pro2"
 
+    # 서버측 STT — 브라우저 Web Speech 는 구글 서버에 의존해 환경마다 실패한다 (Q7)
+    stt_enabled: bool = True
+    whisper_model: str = "base"
+    """tiny(~75MB) | base(~145MB) | small(~480MB). 클수록 한국어 품질이 오르고 느려진다."""
+
+    whisper_device: str = "cpu"
+    whisper_compute_type: str = "int8"
+    """CPU 에서는 int8 이 가장 빠르다. GPU 를 쓴다면 float16."""
+
     cors_origins: str = "http://localhost:5173"
     db_path: str = "./intuition.db"
 
