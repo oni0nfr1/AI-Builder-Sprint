@@ -137,7 +137,7 @@ export function useSessionFlow(videoRef: React.RefObject<HTMLVideoElement>) {
     // 발화 구간 — 음성만 잰다. ROI 품질은 여기서 갱신하지 않는다(측정하지 않으므로).
     const recorder = new AudioRecorder(stream);
     const transcriber = new Transcriber();
-    recorder.start();
+    await recorder.start();
     transcriber.start();
 
     await countdown(step.durationSec, (elapsedSec) =>
