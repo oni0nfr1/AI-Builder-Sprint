@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import random
+from difflib import SequenceMatcher
 
 from app.schemas.decision import Decision, Option
 from app.services.korean import josa
@@ -18,13 +19,24 @@ _SYSTEM = """당신은 사용자의 고민 한 문장을 구조화하는 파서�
 반드시 지킬 것:
 1. 선택지는 정확히 2개. 사용자가 실제로 저울질하는 것이어야 한다.
 2. 두 선택지 중 어느 쪽도 더 나아 보이게 서술하지 마라. 라벨의 길이·어조·구체성을 대칭으로 맞춰라.
-3. imagine_prompt는 그 선택을 한 뒤의 **구체적인 한 장면**을 떠올리게 하는 문장이다.
+3. imagine_prompt는 **장면을 지정하되 그 장면의 성질은 비워두는** 문장이다.
+   형식: "<시점> <그 선택을 한 장면>을 떠올려보세요. 무엇이 보이고 무엇이 느껴지나요?"
+
    ★시점은 고민의 무게에 맞춰라. 고정된 기간을 쓰지 마라.
-     "점심 뭐 먹지" → "그걸 먹고 있는 순간"
-     "이 기능 지금 할까" → "다음 주 그 화면을 보고 있는 자신"
-     "이직할까" → "6개월 뒤 그곳에서 일하고 있는 자신"
+     "점심 뭐 먹지" → "김치찌개를 먹고 있는 순간을"
+     "이 기능 지금 할까" → "다음 주 그 기능이 올라간 화면을 보고 있는 자신을"
+     "이직할까" → "6개월 뒤 새 회사에서 일하고 있는 자신을"
    작은 고민에 "6개월 뒤"를 붙이면 상상 자체가 되지 않아 측정이 무의미해진다.
-   두 선택지의 문장 구조를 동일하게 하고 선택지 이름만 바꿔라.
+
+   ★★그 장면이 **어떤 느낌인지는 절대 쓰지 마라.**
+     ✗ "따뜻한 물줄기를 맞으며 피로가 풀리는 순간"   ← 감각과 결과를 우리가 정해줬다
+     ✗ "뿌듯하게 결과물을 완성해 가는 순간"          ← 유인가가 섞였다
+     ⭕ "샤워를 하고 있는 순간을 떠올려보세요. 무엇이 보이고 무엇이 느껴지나요?"
+   느낌은 사용자가 채운다. 우리가 채우면 재는 것이 사용자의 직관이 아니라
+   우리 문장의 효과가 된다.
+
+   ★★★두 선택지의 문장은 **선택지를 가리키는 부분만 다르고 나머지는 글자까지 같아야**
+   한다. 한쪽이 더 길거나 더 생생하면 그 자체가 유도다.
 4. speak_prompt는 **느낌**을 묻는 문장이다. 장단점·이유·근거를 묻지 마라.
    ("장단점을 설명해 주세요", "왜 그런지 말해주세요" 같은 문장은 금지다.)
    분석하듯 말하면 목소리가 평탄해져서 측정하려는 신호가 사라진다.
@@ -40,6 +52,54 @@ JSON으로만 답하라:
 {"title": "...", "value_axis": "안정 vs 성장",
  "options": [{"label": "...", "axis_side": "안정", "imagine_prompt": "...", "speak_prompt": "..."},
              {"label": "...", "axis_side": "성장", "imagine_prompt": "...", "speak_prompt": "..."}]}"""
+
+
+_VALENCE_WORDS = (
+    # 쾌 — 한쪽만 이렇게 쓰이면 그쪽으로 기울게 만든다
+    "따뜻", "포근", "편안", "상쾌", "개운", "여유로", "설레", "뿌듯", "보람",
+    "성취감", "즐거", "행복", "홀가분", "후련", "만족스", "풀리", "해소",
+    # 불쾌
+    "지치", "힘들", "괴로", "답답", "불안", "초조", "후회", "아쉬", "막막",
+)
+"""장면의 성질을 우리가 정해버리는 말들. 상상 프롬프트에 들어가면 안 된다."""
+
+_MIN_PROMPT_SIMILARITY = 0.55
+"""두 상상 프롬프트가 이보다 덜 닮았으면 구조가 어긋난 것으로 본다."""
+
+
+def _prompts_are_neutral(options: list[Option]) -> bool:
+    """상상 프롬프트가 대칭이고 유인가가 없는가.
+
+    ★어느 한쪽에 권하는 뉘앙스가 섞이면 [5] 리포트에 도달하기 전에 이미 유도가
+    일어나고, 그 시점부터 우리가 재는 건 사용자의 직관이 아니라 우리 프롬프트의
+    효과다 (CLAUDE.md). 프롬프트로만 막으면 샌다 — 실제로 이런 게 나갔다:
+
+        "따뜻한 물줄기를 맞으며 피로가 풀리는 순간"     ← 감각과 결과를 우리가 정했다
+        "작업 흐름을 유지하며 결과물을 완성해 가는 순간"  ← 결이 다르고 훨씬 건조하다
+    """
+    prompts = [o.imagine_prompt for o in options]
+    if any(not p.strip() for p in prompts):
+        return False
+    if any(word in p for p in prompts for word in _VALENCE_WORDS):
+        return False
+    if len(prompts) != 2:
+        return True
+    similarity = SequenceMatcher(None, prompts[0], prompts[1]).ratio()
+    return similarity >= _MIN_PROMPT_SIMILARITY
+
+
+def _normalize_prompts(decision: Decision) -> Decision:
+    """검증에 걸리면 두 프롬프트를 **함께** 규칙 기반으로 되돌린다.
+
+    한쪽만 고치면 비대칭이 그대로 남으므로 반드시 둘 다 바꾼다.
+    """
+    if not _prompts_are_neutral(decision.options):
+        for option in decision.options:
+            option.imagine_prompt = _imagine_prompt(option.label)
+    # 발화 프롬프트는 애초에 선택지 이름을 부르지 않아 항상 동일하다.
+    for option in decision.options:
+        option.speak_prompt = option.speak_prompt.strip() or _speak_prompt(option.label)
+    return decision
 
 
 def _axis_poles(value_axis: str) -> list[str]:
@@ -75,13 +135,20 @@ def _normalize_axis_sides(decision: Decision) -> Decision:
 
 
 def _imagine_prompt(label: str) -> str:
-    """★시점을 못 박지 않는다.
+    """★시점을 못 박지 않고, 느낌도 우리가 채우지 않는다.
 
     "6개월 뒤"로 고정했더니 "점심 뭐 먹지" 같은 작은 고민에서 상상 자체가
-    되지 않았다. 그러면 상상 구간 15초가 빈 채로 지나가고 심박 측정이
-    무의미해진다. 폴백은 어떤 크기의 고민에도 맞는 표현을 쓴다.
+    되지 않았다. 그러면 상상 구간 15초가 빈 채로 지나가고 심박 측정이 무의미해진다.
+
+    동시에 장면의 **성질**은 비워둔다. "따뜻한 물줄기를 맞으며 피로가 풀리는"처럼
+    쓰면 사용자는 자기 상상이 아니라 우리 시나리오를 떠올리게 되고, 그때 재는 것은
+    사용자의 직관이 아니라 우리 문장의 효과다. 그래서 장면만 가리키고 감각은
+    질문으로 넘긴다 — 상상은 자극하되 내용은 사용자가 채운다.
     """
-    return f"'{label}'{josa(label, '을/를')} 선택한 뒤의 한 장면을 구체적으로 떠올려보세요."
+    return (
+        f"'{label}'{josa(label, '을/를')} 선택한 뒤의 한 장면을 떠올려보세요. "
+        "무엇이 보이고 무엇이 느껴지나요?"
+    )
 
 
 def _speak_prompt(_label: str) -> str:
@@ -160,4 +227,4 @@ async def parse_decision(raw_input: str) -> Decision:
     except (KeyError, TypeError):
         return _randomize_order(_fallback(raw_input))
 
-    return _randomize_order(_normalize_axis_sides(decision))
+    return _randomize_order(_normalize_prompts(_normalize_axis_sides(decision)))
