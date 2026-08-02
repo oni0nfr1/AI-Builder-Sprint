@@ -59,17 +59,42 @@ export function useSessionFlow(videoRef: React.RefObject<HTMLVideoElement>) {
   const streamRef = useRef<MediaStream | null>(null);
   const samplerRef = useRef<RoiSampler | null>(null);
   const sessionIdRef = useRef<string | null>(null);
+  const preflightRef = useRef<number | null>(null);
 
   const fail = useCallback((message: string) => {
     setState((prev) => ({ ...prev, phase: 'error', errorMessage: message }));
   }, []);
 
+  const stopPreflight = useCallback(() => {
+    if (preflightRef.current === null) return;
+    window.clearInterval(preflightRef.current);
+    preflightRef.current = null;
+  }, []);
+
+  /**
+   * 준비 화면에서 ROI 신호를 미리 보여준다.
+   *
+   * 조명 경고를 캡처 중에만 띄우면 이미 15초가 흐른 뒤라 늦다. 어두운 채로
+   * 세션을 끝내면 심박이 통째로 버려지므로(실측 confidence 0.05), 시작 전에
+   * 사용자가 조명을 고칠 기회를 준다.
+   */
+  const startPreflight = useCallback(() => {
+    stopPreflight();
+    preflightRef.current = window.setInterval(() => {
+      const sampler = samplerRef.current;
+      if (!sampler) return;
+      sampler.sample(performance.now());
+      setState((prev) => ({ ...prev, quality: sampler.quality }));
+    }, 200);
+  }, [stopPreflight]);
+
   const stopMedia = useCallback(() => {
+    stopPreflight();
     samplerRef.current?.dispose();
     samplerRef.current = null;
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
-  }, []);
+  }, [stopPreflight]);
 
   /** [0] 고민 등록 + 카메라·마이크 준비. */
   const start = useCallback(
@@ -96,6 +121,7 @@ export function useSessionFlow(videoRef: React.RefObject<HTMLVideoElement>) {
           decision,
           steps: buildSteps(decision),
         }));
+        startPreflight();
       } catch (error) {
         stopMedia();
         fail(
@@ -105,7 +131,7 @@ export function useSessionFlow(videoRef: React.RefObject<HTMLVideoElement>) {
         );
       }
     },
-    [fail, stopMedia, videoRef],
+    [fail, startPreflight, stopMedia, videoRef],
   );
 
   /** [1] 한 스텝 캡처 → [2] 업로드. */
@@ -145,7 +171,11 @@ export function useSessionFlow(videoRef: React.RefObject<HTMLVideoElement>) {
     );
 
     const audioBase64 = await recorder.stop();
-    const transcript = transcriber.stop();
+    const transcript = await transcriber.stop();
+    if (!transcript && transcriber.lastError) {
+      // 인식 실패는 치명적이지 않다(판정은 음향 특징에서 나온다). 다만 왜 비었는지는 남긴다.
+      console.warn(`STT 결과 없음 — ${transcriber.lastError}`);
+    }
 
     await uploadCapture(sessionId, {
       session_id: sessionId,
@@ -165,6 +195,9 @@ export function useSessionFlow(videoRef: React.RefObject<HTMLVideoElement>) {
     const sessionId = sessionIdRef.current;
     const steps = state.steps;
     if (!sessionId || steps.length === 0) return;
+
+    // 캡처 루프가 직접 샘플링하므로 프리플라이트와 겹치면 안 된다.
+    stopPreflight();
 
     try {
       for (let index = 0; index < steps.length; index += 1) {
@@ -187,7 +220,7 @@ export function useSessionFlow(videoRef: React.RefObject<HTMLVideoElement>) {
       stopMedia();
       fail(error instanceof Error ? error.message : '기록 중 문제가 생겼습니다.');
     }
-  }, [fail, runStep, state.steps, stopMedia]);
+  }, [fail, runStep, state.steps, stopMedia, stopPreflight]);
 
   /** [6] 사용자 태깅 — 해석의 주체는 사용자다. */
   const submitAnnotation = useCallback(

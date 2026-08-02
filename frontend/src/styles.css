@@ -211,6 +211,22 @@ body {
   font-size: 0.85rem;
 }
 
+/* 준비 화면의 신호 상태 — 측정 전에 조명을 고칠 기회를 준다 */
+
+.signal {
+  margin: 0;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.signal--ok {
+  color: #7ad4a0;
+}
+
+.signal--warn {
+  color: #ffca7a;
+}
+
 /* ── 리포트 ───────────────────────────────────────────── */
 
 /* ① 상태 고지 — 프레임이므로 시각적으로도 먼저 눈에 들어와야 한다 */

@@ -23,13 +23,45 @@ export interface RoiQuality {
   faceDetected: boolean;
 }
 
+/**
+ * rPPG는 피부 반사광의 미세한 맥동을 본다. 어두우면 그 변동이 양자화 노이즈에
+ * 묻히고, 포화되면 아예 잘려 나간다. (실측: 밝기 45에서 confidence 0.05)
+ */
+export const BRIGHTNESS_TOO_DARK = 60;
+export const BRIGHTNESS_TOO_BRIGHT = 235;
+
+export interface QualityVerdict {
+  ok: boolean;
+  message: string;
+}
+
+/** 심박은 상상(정지) 구간에서만 재므로 이 판단도 그 구간에만 의미가 있다. */
+export function describeQuality(quality: RoiQuality): QualityVerdict {
+  if (!quality.faceDetected) {
+    return { ok: false, message: '얼굴이 화면 안에 들어오도록 맞춰주세요.' };
+  }
+  if (quality.brightness < BRIGHTNESS_TOO_DARK) {
+    return {
+      ok: false,
+      message: `너무 어두워요. 얼굴 쪽으로 빛이 오게 해주세요 (밝기 ${Math.round(
+        quality.brightness,
+      )} → ${BRIGHTNESS_TOO_DARK} 이상 필요).`,
+    };
+  }
+  if (quality.brightness > BRIGHTNESS_TOO_BRIGHT) {
+    return { ok: false, message: '빛이 너무 강해요. 조명을 조금 낮춰주세요.' };
+  }
+  return { ok: true, message: '신호가 잘 잡히고 있어요.' };
+}
+
 export class RoiSampler {
   private canvas = document.createElement('canvas');
   private ctx: CanvasRenderingContext2D;
   private landmarker: FaceLandmarker | null = null;
   private lastQuality: RoiQuality = { brightness: 0, faceDetected: false };
 
-  private constructor(private readonly video: HTMLVideoElement) {
+  // recordRgbSeries가 프레임 전진 여부를 보려면 요소에 접근할 수 있어야 한다.
+  private constructor(readonly video: HTMLVideoElement) {
     this.canvas.width = SAMPLE_CANVAS_SIZE;
     this.canvas.height = SAMPLE_CANVAS_SIZE;
     const ctx = this.canvas.getContext('2d', { willReadFrequently: true });
@@ -176,12 +208,23 @@ export interface RgbRecording {
   series: RgbSample[];
   fps: number;
   durationSec: number;
+  /** 같은 카메라 프레임이라 건너뛴 횟수. 0에 가까울수록 샘플링이 정확하다. */
+  duplicatesSkipped: number;
 }
 
 /**
  * 지정 시간 동안 ROI RGB를 모은다.
  *
- * requestAnimationFrame은 프레임 간격이 흔들리므로 실측 fps를 함께 돌려준다 —
+ * ★같은 프레임을 두 번 읽으면 안 된다.
+ * requestAnimationFrame은 디스플레이 주사율(60~120Hz)로 도는데 카메라는 보통 30fps라,
+ * rAF마다 샘플링하면 절반 가까이가 직전 프레임의 복사본이 된다. 같은 값이 반복되면
+ * 계단 모양 신호가 생기고, 그 계단이 만들어낸 가짜 고주파를 rPPG의 FFT가 심박으로
+ * 잡는다 (실측: 15초에 731샘플 / 156bpm / SNR -9dB).
+ *
+ * requestVideoFrameCallback이 있으면 실제 프레임에만 콜백하고,
+ * 없으면 currentTime이 움직였을 때만 샘플링해서 같은 효과를 낸다.
+ *
+ * 프레임 간격은 여전히 흔들리므로 실측 fps를 함께 돌려준다 —
  * 백엔드 rPPG가 균일 격자로 다시 샘플링할 때 필요하다.
  */
 export function recordRgbSeries(
@@ -192,22 +235,57 @@ export function recordRgbSeries(
   return new Promise((resolve) => {
     const series: RgbSample[] = [];
     const startMs = performance.now();
+    const video = sampler.video;
+    // 표준 타입에는 필수로 선언돼 있지만 Firefox 등에는 아직 없다. 런타임에서 확인한다.
+    const useFrameCallback = typeof video.requestVideoFrameCallback === 'function';
+
+    let lastVideoTime = -1;
+    let duplicatesSkipped = 0;
+    let settled = false;
+
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(watchdog);
+      const elapsedSec = (performance.now() - startMs) / 1000;
+      resolve({
+        series,
+        fps: series.length > 1 ? series.length / elapsedSec : 0,
+        durationSec: elapsedSec,
+        duplicatesSkipped,
+      });
+    };
+
+    // 카메라가 멈추면 requestVideoFrameCallback은 영영 오지 않는다.
+    // 세션이 통째로 멈추느니 모은 만큼이라도 들고 나간다.
+    const watchdog = setTimeout(finish, (durationSec + 2) * 1000);
 
     const step = () => {
+      if (settled) return;
       const nowMs = performance.now();
       const elapsedSec = (nowMs - startMs) / 1000;
 
-      const rgb = sampler.sample(nowMs);
-      if (rgb) series.push({ t: elapsedSec, ...rgb });
+      // requestVideoFrameCallback은 새 프레임에만 오므로 중복 검사가 필요 없다.
+      if (useFrameCallback || video.currentTime !== lastVideoTime) {
+        lastVideoTime = video.currentTime;
+        const rgb = sampler.sample(nowMs);
+        if (rgb) series.push({ t: elapsedSec, ...rgb });
+      } else {
+        duplicatesSkipped += 1;
+      }
       onTick?.(elapsedSec, sampler.quality);
 
       if (elapsedSec >= durationSec) {
-        const measured = series.length > 1 ? series.length / elapsedSec : 0;
-        resolve({ series, fps: measured, durationSec: elapsedSec });
+        finish();
         return;
       }
-      requestAnimationFrame(step);
+      schedule();
     };
-    requestAnimationFrame(step);
+
+    const schedule = () => {
+      if (useFrameCallback) video.requestVideoFrameCallback(step);
+      else requestAnimationFrame(step);
+    };
+    schedule();
   });
 }

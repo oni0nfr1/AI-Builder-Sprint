@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { CaptureStage } from './components/CaptureStage';
 import { useSessionFlow } from './hooks/useSessionFlow';
+import { describeQuality } from './lib/faceRoi';
 import { totalDurationSec } from './lib/sessionFlow';
 import { DecisionInput } from './screens/DecisionInput';
 import { ReportView } from './screens/ReportView';
@@ -14,7 +15,10 @@ export default function App() {
   useEffect(() => stopMedia, [stopMedia]);
 
   const capturing = state.phase === 'capturing';
+  const ready = state.phase === 'ready';
   const currentStep = capturing ? state.steps[state.stepIndex] : null;
+  // 준비 화면에서도 신호를 보여준다 — 어두운 채로 시작하면 심박이 통째로 버려진다.
+  const preflight = ready ? describeQuality(state.quality) : null;
 
   return (
     <main className="app">
@@ -23,7 +27,7 @@ export default function App() {
         조건부로 위치를 옮기면 언마운트되면서 srcObject 연결이 끊긴다.
         영상은 화면 표시와 ROI 샘플링에만 쓰이고 브라우저 밖으로 나가지 않는다.
       */}
-      <div className={`viewport ${capturing ? 'viewport--live' : 'viewport--idle'}`}>
+      <div className={`viewport ${capturing || ready ? 'viewport--live' : 'viewport--idle'}`}>
         <video ref={videoRef} className="viewport__video" muted playsInline />
         {currentStep?.phase === 'imagine' && (
           // 시선을 한 곳에 두면 머리 움직임이 줄어 rPPG 신호가 안정된다.
@@ -56,8 +60,18 @@ export default function App() {
           <p className="panel__note">
             정답을 맞히는 시간이 아니에요. 떠오르는 대로 두시면 됩니다.
           </p>
+          {preflight && (
+            <p className={`signal ${preflight.ok ? 'signal--ok' : 'signal--warn'}`}>
+              {preflight.ok ? '●' : '○'} {preflight.message}
+            </p>
+          )}
+          {/*
+            신호가 나빠도 막지는 않는다 — 조명을 못 바꾸는 상황도 있고,
+            심박이 빠져도 음성만으로 파이프라인은 돈다. 다만 그 선택을
+            사용자가 알고 하도록 버튼 문구로 알린다.
+          */}
           <button className="button" type="button" onClick={runAll}>
-            시작
+            {preflight?.ok ? '시작' : '이대로 시작'}
           </button>
         </div>
       )}
