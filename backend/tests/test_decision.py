@@ -124,3 +124,45 @@ def test_speak_prompt_asks_for_feeling_not_analysis() -> None:
     assert "느낌" in prompt
     for banned in ("장단점", "이유", "왜", "설명"):
         assert banned not in prompt
+
+
+# ── 축 통합 ────────────────────────────────────────────────
+
+
+def test_reversed_axis_is_unified() -> None:
+    """'성장 vs 안정'과 '안정 vs 성장'은 같은 축이다. 문자열이 달라 갈리면 안 된다."""
+    assert decision_service._canonical_axis("성장 vs 안정", ["안정 vs 성장"]) == "안정 vs 성장"
+
+
+def test_case_and_spacing_do_not_split_axes() -> None:
+    assert decision_service._canonical_axis("성장  VS  안정", ["안정 vs 성장"]) == "안정 vs 성장"
+
+
+def test_genuinely_different_axis_is_kept() -> None:
+    """뜻이 다른 축까지 합치면 없는 가치관을 만들어낸다."""
+    assert decision_service._canonical_axis("관계 vs 자율", ["안정 vs 성장"]) == "관계 vs 자율"
+
+
+def test_unparseable_axis_is_left_alone() -> None:
+    assert decision_service._canonical_axis("그냥 한 덩어리", ["안정 vs 성장"]) == "그냥 한 덩어리"
+
+
+def test_known_axes_are_offered_to_the_llm() -> None:
+    """LLM 이 기존 축을 못 보면 매번 새 표현을 지어낸다 — 2층이 안 쌓인다."""
+    message = decision_service._user_message("이직할까", ["안정 vs 성장", "관계 vs 자율"])
+    assert "안정 vs 성장" in message and "관계 vs 자율" in message
+    assert "이직할까" in message
+    # 억지로 끼워맞추지 말라는 단서가 함께 있어야 한다.
+    assert "뜻이 다르면" in message
+
+
+def test_no_known_axes_means_plain_input() -> None:
+    """첫 고민에는 붙일 목록이 없다. 빈 목록을 보여주면 혼란만 준다."""
+    assert decision_service._user_message("이직할까", []) == "이직할까"
+
+
+def test_known_axes_are_capped() -> None:
+    """축이 수십 개가 되면 프롬프트가 길어지고 억지 매칭이 는다."""
+    many = [f"축{i}a vs 축{i}b" for i in range(40)]
+    message = decision_service._user_message("x", many[: decision_service._MAX_KNOWN_AXES])
+    assert message.count("\n- ") <= decision_service._MAX_KNOWN_AXES

@@ -8,8 +8,10 @@
 from __future__ import annotations
 
 import random
+from collections import Counter
 from difflib import SequenceMatcher
 
+from app.core import storage
 from app.schemas.decision import Decision, Option
 from app.services.korean import josa
 from app.services.llm import chat_json
@@ -43,6 +45,8 @@ _SYSTEM = """당신은 사용자의 고민 한 문장을 구조화하는 파서�
    좋은 예: "그 장면에서 든 느낌을 그대로 말해주세요."
    두 선택지가 동일한 구조여야 한다.
 5. value_axis는 이 고민이 걸려 있는 가치 축이다. "A vs B" 형식의 짧은 구.
+   ★이미 쓰인 축 목록을 함께 준다. 뜻이 같은 축이 있으면 **그 문자열을 그대로 써라.**
+   표현만 다른 축이 계속 생기면 고민들을 가로지르는 패턴이 영영 보이지 않는다.
 6. axis_side는 그 선택지가 value_axis의 **어느 극인지**다.
    반드시 value_axis에 쓴 두 낱말 중 하나를 그대로 써라.
    ("안정 vs 성장"이면 axis_side는 "안정" 또는 "성장"이다. 두 선택지가 서로 달라야 한다.)
@@ -110,6 +114,67 @@ def _axis_poles(value_axis: str) -> list[str]:
             if all(poles):
                 return poles
     return []
+
+
+# ═══════════════════════════════════════════ 축 통합
+#
+# ★[8] 가치관 지도는 value_axis **문자열**로 묶는다. 표현이 조금만 달라도 갈린다.
+# 실측: 고민 25건에서 축이 9개로 쪼개졌고 그중 최소 세 쌍이 사실상 같은 축이었다
+#       ("안정 vs 성장" / "안정 vs 변화" / "익숙함 vs 새로움",
+#        "당장 vs 나중" / "즉시 vs 유예")
+# 이러면 새 고민마다 새 축이 1회로 남아 "반복 → 가치관"이 구조적으로 성립하지 않는다.
+#
+# 두 겹으로 막는다.
+#   (1) 결정적 — 극 집합이 같으면 기존 표기로 통일한다 ('성장 vs 안정' = '안정 vs 성장')
+#   (2) LLM   — 기존 축 목록을 보여주고 뜻이 같으면 그대로 쓰게 한다
+
+_MAX_KNOWN_AXES = 12
+"""프롬프트에 넣을 기존 축 개수. 너무 많으면 억지로 끼워맞추게 된다."""
+
+
+def _known_axes() -> list[str]:
+    """지금까지 쓰인 축을 많이 쓰인 순으로."""
+    counts: Counter[str] = Counter()
+    for raw in storage.list_all("decisions"):
+        axis = (raw.get("value_axis") or "").strip()
+        if axis:
+            counts[axis] += 1
+    return [axis for axis, _ in counts.most_common(_MAX_KNOWN_AXES)]
+
+
+def _poles_key(value_axis: str) -> frozenset[str] | None:
+    """축을 순서·대소문자와 무관한 열쇠로. 갈라내지 못하면 None."""
+    poles = _axis_poles(value_axis)
+    if len(poles) != 2:
+        return None
+    return frozenset(p.lower() for p in poles)
+
+
+def _canonical_axis(value_axis: str, known: list[str]) -> str:
+    """극 집합이 같은 기존 축이 있으면 그 표기로 통일한다.
+
+    LLM 이 '성장 vs 안정'이라고 뒤집어 쓰는 것만으로 축이 갈리는 건 막을 수 있다.
+    뜻이 같지만 낱말이 다른 경우(성장 vs 변화)는 여기서 못 잡고 LLM 쪽에 맡긴다.
+    """
+    key = _poles_key(value_axis)
+    if key is None:
+        return value_axis
+    for candidate in known:
+        if _poles_key(candidate) == key:
+            return candidate
+    return value_axis
+
+
+def _user_message(raw_input: str, known: list[str]) -> str:
+    if not known:
+        return raw_input
+    listed = "\n".join(f"- {axis}" for axis in known)
+    return (
+        f"{raw_input}\n\n"
+        f"[지금까지 쓰인 가치 축]\n{listed}\n\n"
+        "이 중 뜻이 같은 축이 있으면 새로 만들지 말고 그 문자열을 그대로 써라. "
+        "다만 뜻이 다르면 새로 만들어라 — 억지로 끼워맞추면 가치관 지도가 거짓이 된다."
+    )
 
 
 def _normalize_axis_sides(decision: Decision) -> Decision:
@@ -203,10 +268,20 @@ def _randomize_order(decision: Decision) -> Decision:
     return decision
 
 
+def _finalize(decision: Decision, known: list[str]) -> Decision:
+    """축 통합 → 극 배정 → 프롬프트 검증 → 순서 랜덤화.
+
+    축 통합이 가장 먼저다. 표기가 바뀌면 그에 맞춰 극을 배정해야 하기 때문이다.
+    """
+    decision.value_axis = _canonical_axis(decision.value_axis, known)
+    return _randomize_order(_normalize_prompts(_normalize_axis_sides(decision)))
+
+
 async def parse_decision(raw_input: str) -> Decision:
-    parsed = await chat_json(_SYSTEM, raw_input)
+    known = _known_axes()
+    parsed = await chat_json(_SYSTEM, _user_message(raw_input, known))
     if not parsed or len(parsed.get("options", [])) != 2:
-        return _randomize_order(_fallback(raw_input))
+        return _finalize(_fallback(raw_input), known)
 
     try:
         options = [
@@ -225,6 +300,6 @@ async def parse_decision(raw_input: str) -> Decision:
             options=options,
         )
     except (KeyError, TypeError):
-        return _randomize_order(_fallback(raw_input))
+        return _finalize(_fallback(raw_input), known)
 
-    return _randomize_order(_normalize_prompts(_normalize_axis_sides(decision)))
+    return _finalize(decision, known)
