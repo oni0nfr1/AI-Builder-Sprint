@@ -1,0 +1,88 @@
+"""[2] 특징 추출 — Features."""
+
+from __future__ import annotations
+
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+from app.schemas.common import MetricKey
+
+
+class VoiceFeatures(BaseModel):
+    f0_mean: float
+    f0_std: float
+    loudness_mean: float
+    jitter_local: float
+    shimmer_local: float
+    hnr: float
+    speech_rate: float
+    pause_ratio: float
+
+    egemaps: dict[str, float] | None = None
+    """eGeMAPS 88 전체. openSMILE이 있을 때만 채워진다."""
+
+    def as_metrics(self) -> dict[MetricKey, float]:
+        return {
+            MetricKey.F0_MEAN: self.f0_mean,
+            MetricKey.F0_STD: self.f0_std,
+            MetricKey.LOUDNESS_MEAN: self.loudness_mean,
+            MetricKey.JITTER_LOCAL: self.jitter_local,
+            MetricKey.SHIMMER_LOCAL: self.shimmer_local,
+            MetricKey.HNR: self.hnr,
+            MetricKey.SPEECH_RATE: self.speech_rate,
+            MetricKey.PAUSE_RATIO: self.pause_ratio,
+        }
+
+
+class HeartRateFeatures(BaseModel):
+    bpm: float
+    confidence: float = Field(ge=0.0, le=1.0)
+    """0~1. 항상 반환한다 — 웹캠 rPPG는 조명·움직임에 민감하다.
+
+    CONFIDENCE_FLOOR 미만이면 [4] 판정에서 심박 축을 제외하고 음성만으로 간다.
+    """
+
+    snr_db: float | None = None
+    """서버의 레거시 RGB 분석에서만 산출한다."""
+
+    source: Literal["server_rgb", "rppg-web"] = "server_rgb"
+    signal_quality: float | None = Field(default=None, ge=0.0, le=1.0)
+    agreement: float | None = Field(default=None, ge=0.0, le=1.0)
+    reason_codes: list[str] = Field(default_factory=list)
+
+    hrv_rmssd: float | None = None
+    """MVP(웹캠 rPPG)에서는 항상 None. 웨어러블 연동 시 채운다."""
+
+    def as_metrics(self) -> dict[MetricKey, float]:
+        return {MetricKey.BPM: self.bpm}
+
+
+CONFIDENCE_FLOOR = 0.4
+"""이 값 미만의 rPPG 신뢰도는 판정에서 제외한다."""
+
+
+class Features(BaseModel):
+    capture_id: str
+    voice: VoiceFeatures | None = None
+    """phase == SPEAK 에서만."""
+
+    hr: HeartRateFeatures | None = None
+    """phase == IMAGINE 에서만."""
+
+    text_embedding: list[float] | None = None
+    """발화 내용의 의미 벡터 (Solar embedding).
+
+    ★[4] 판정에 **언어 축**을 들여오는 통로다. 지금까지 판정은 음향(비언어)만
+    보고 있었다 — 제품 정의는 "언어와 비언어 신호"인데 언어가 빠져 있었다.
+
+    재계산이 API 호출이라 저장한다. 없어도 파이프라인은 돈다.
+    """
+
+    def as_metrics(self) -> dict[MetricKey, float]:
+        metrics: dict[MetricKey, float] = {}
+        if self.voice is not None:
+            metrics.update(self.voice.as_metrics())
+        if self.hr is not None and self.hr.confidence >= CONFIDENCE_FLOOR:
+            metrics.update(self.hr.as_metrics())
+        return metrics
