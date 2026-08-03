@@ -2,6 +2,111 @@
 
 > 총 168시간, AI와 함께 만드는 도전
 
+## 프로젝트 — 직관 노트
+
+고민 중인 두 선택지를 말하고 상상할 때 나타나는 음성·심박 반응을 관찰해,
+사용자가 자신의 직관을 직접 해석하도록 돕는 메타인지 훈련 웹앱입니다.
+AI가 결정을 추천하거나 감정을 단정하지 않고, 측정된 차이와 질문만 제공합니다.
+
+### 로컬 실행 가이드
+
+#### 준비물
+
+- Python 3.11 이상
+- Node.js 20 이상과 npm
+- 카메라와 마이크를 사용할 수 있는 Chrome 계열 브라우저
+
+백엔드와 프론트엔드는 서로 다른 터미널에서 실행합니다.
+
+#### 1. 백엔드 실행
+
+macOS/Linux:
+
+```bash
+cd backend
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+cp .env.example .env
+python -m uvicorn app.main:app --reload
+```
+
+Windows PowerShell:
+
+```powershell
+cd backend
+py -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+Copy-Item .env.example .env
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload
+```
+
+백엔드가 실행되면 다음 주소를 확인할 수 있습니다.
+
+- 상태 확인: http://localhost:8000/health
+- API 문서: http://localhost:8000/docs
+
+`backend/.env`의 `UPSTAGE_API_KEY`는 선택 사항입니다. 키가 없거나 Solar 호출에
+실패하면 고민 파싱과 리포트 생성은 규칙 기반 폴백으로 동작합니다.
+
+STT는 기본적으로 `faster-whisper`의 `base` 모델을 사용하며 첫 실행에 약 145MB를
+다운로드합니다. 모델 다운로드가 어려운 환경에서는 아래처럼 비활성화할 수 있습니다.
+
+```env
+STT_ENABLED=false
+```
+
+#### 2. 프론트엔드 실행
+
+macOS/Linux:
+
+```bash
+cd frontend
+npm install
+cp .env.example .env
+npm run dev
+```
+
+Windows PowerShell:
+
+```powershell
+cd frontend
+npm install
+Copy-Item .env.example .env
+npm run dev
+```
+
+브라우저에서 http://localhost:5173 에 접속하고 카메라·마이크 권한을 허용합니다.
+프론트엔드가 다른 백엔드 주소를 사용해야 한다면 `frontend/.env`를 수정합니다.
+
+```env
+VITE_API_BASE_URL=http://localhost:8000
+```
+
+> `getUserMedia`는 보안 컨텍스트에서만 동작합니다. `localhost`는 허용되지만,
+> 다른 기기에서 접속하거나 원격 배포할 때는 HTTPS가 필요합니다.
+
+#### 3. 테스트
+
+백엔드:
+
+```bash
+cd backend
+python -m pytest -q
+```
+
+프론트엔드:
+
+```bash
+cd frontend
+npm run typecheck
+npm run build
+```
+
+세부 구조와 개발 시 주의사항은 [`backend/README.md`](backend/README.md),
+[`frontend/README.md`](frontend/README.md), 제품 원칙은 [`CLAUDE.md`](CLAUDE.md)를
+참조하세요.
+
 ## 대회 소개
 
 **AI Builder Sprint 2026**은 부산대학교 **APPTIVE**가 주최하고, **Upstage**, 부산대학교 **Anchor 사업단** 및 부산대학교 **AI융합교육원**이 후원하는 해커톤입니다. 참가자들은 자유로운 기술 스택을 바탕으로 실제로 동작하는 서비스를 직접 코드로 구현합니다.
