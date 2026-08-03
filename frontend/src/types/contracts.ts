@@ -149,6 +149,25 @@ export interface Features {
 
 export const CONFIDENCE_FLOOR = 0.4;
 
+// ─────────────────────────────────────────────── 개발 전용 rPPG 진단
+
+export interface RppgComparisonRequest {
+  rgb_series: RgbSample[] | null;
+  fps: number;
+  duration_sec: number;
+  rppg_web: RppgMeasurement | null;
+  reference_bpm: number | null;
+}
+
+export interface RppgComparisonResult {
+  server_chrom: HeartRateFeatures | null;
+  rppg_web: RppgMeasurement | null;
+  reference_bpm: number | null;
+  server_absolute_error: number | null;
+  web_absolute_error: number | null;
+  bpm_difference: number | null;
+}
+
 // ────────────────────────────────────────── [3][4] 상대화 · 판정
 
 /**

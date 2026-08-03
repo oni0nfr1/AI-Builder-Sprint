@@ -5,6 +5,7 @@ import { totalDurationSec } from './lib/sessionFlow';
 import { AccumulationView } from './screens/AccumulationView';
 import { DecisionInput } from './screens/DecisionInput';
 import { ReportView } from './screens/ReportView';
+import { RppgTestPage } from './screens/RppgTestPage';
 
 export default function App() {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -19,6 +20,10 @@ export default function App() {
 
   // 탭을 떠나거나 앱이 사라져도 카메라·마이크가 켜져 있으면 안 된다.
   useEffect(() => stopMedia, [stopMedia]);
+
+  if (import.meta.env.DEV && window.location.pathname === '/rppg-test') {
+    return <RppgTestPage />;
+  }
 
   const capturing = state.phase === 'capturing';
   const ready = state.phase === 'ready';

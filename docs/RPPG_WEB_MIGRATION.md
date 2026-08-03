@@ -70,7 +70,12 @@ confidence, signal quality, estimator agreement, reason code와 안정 샘플 �
 - [x] 기존 RGB 시계열 E2E 테스트를 유지해 호환 경로 확인
 - [x] 실제 `/captures` 요청에 대한 새 계약 통합 테스트
 - [x] 실제 브라우저에서 WASM 로드, 얼굴 안내, 10초 이후 내부 측정값 생성 확인
+- [x] 개발 전용 비저장 비교 API와 `/rppg-test` 교대 측정 화면
+- [x] 1인 기준 장비 비교: rppg-web 성공값 MAE 2.96 BPM, CHROM 4/4 confidence 미달
 - [ ] 네트워크 요청에 영상/RGB가 없고 `rppg_measurement`만 있는지 확인
+
+비교 프로토콜과 원자료, 해석 범위는 `docs/RPPG_TESTING.md`에 기록한다. 현재 실측은
+참가자 1명·조건 1개의 탐색 결과이므로 일반 정확도 근거로 사용하지 않는다.
 
 문제가 생기면 새 프론트엔드 어댑터와 `rppg_measurement` 전송만 되돌려도 서버의
 기존 RGB 분석 경로로 즉시 복귀할 수 있다.

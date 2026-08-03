@@ -1,0 +1,8 @@
+id,captured_at,participant_id,condition,protocol_step,set,mode,reference_bpm,web_bpm,web_confidence,web_signal_quality,web_agreement,web_stable_sample_count,web_reason_codes,server_bpm,server_confidence,server_snr_db,web_absolute_error,server_absolute_error,bpm_difference,fps,sample_count,duplicates_skipped,mean_brightness,roi_count
+529646b2-424b-4c17-8a09-4dab2912429b,2026-08-03T07:54:12.992Z,P01,normal_light_still,1,1,web,110,,,,,,,,,,,,,,,,,
+9556007b-ffee-4737-a6df-474a8a0cecb6,2026-08-03T07:56:55.112Z,P01,normal_light_still,2,1,chrom,105,,,,,,,174.2,0.202,-5.97,,69.2,,12.176470588235293,207,0,181.3179233350911,3
+e4ed5960-93ef-4761-befe-a05a0a8572a0,2026-08-03T07:57:58.610Z,P01,normal_light_still,3,2,chrom,100,,,,,,,80,0.201,-5.98,,20,,20.33357698185926,306,0,175.10770365172567,3
+225e673f-96e3-4cd9-8b1c-a80fa6b9c9d5,2026-08-03T07:58:50.137Z,P01,normal_light_still,4,2,web,100,107.89181271702037,0.8968663085952833,0.9938921859619815,0.22673106783078753,8,LOW_SNR,,,,7.89,,,,,,,
+27b3657a-c27c-4aee-beb0-1d1cec075d04,2026-08-03T08:00:01.476Z,P01,normal_light_still,5,3,web,100,100.04733573703436,0.8861589465156428,1,0.2306399257170957,1,LOW_SNR,,,,0.05,,,,,,,
+2fa561a2-4a06-48d8-a39a-e31fbf235499,2026-08-03T08:00:50.495Z,P01,normal_light_still,6,3,chrom,100,,,,,,,92.1,0.281,-4.38,,7.9,,20.3525108081144,306,0,175.21423877352333,3
+ad93ea51-37c8-47f7-9a5b-51e3f4db04c4,2026-08-03T08:01:40.729Z,P01,normal_light_still,7,,simultaneous,100,99.05955320614201,0.5615322589005829,0.9794644598614772,0.17132408059903503,9,LOW_SNR,184.5,0.224,-5.53,0.94,84.5,85.44,20.252324037184593,305,0,173.31420017550622,3

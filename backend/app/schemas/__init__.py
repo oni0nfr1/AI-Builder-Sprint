@@ -21,6 +21,7 @@ from app.schemas.common import (
     MetricKey,
 )
 from app.schemas.decision import Decision, DecisionCreateRequest, Option
+from app.schemas.diagnostics import RppgComparisonRequest, RppgComparisonResult
 from app.schemas.features import (
     CONFIDENCE_FLOOR,
     Features,
@@ -50,6 +51,9 @@ __all__ = [
     "Decision",
     "Option",
     "DecisionCreateRequest",
+    # diagnostics (development only)
+    "RppgComparisonRequest",
+    "RppgComparisonResult",
     # [1]
     "Capture",
     "RgbSample",

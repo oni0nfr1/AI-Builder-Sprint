@@ -16,7 +16,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.core.config import get_settings
 from app.core.storage import init_db
-from app.routers import decisions, sessions
+from app.routers import decisions, diagnostics, sessions
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +46,7 @@ app.include_router(decisions.router)
 app.include_router(sessions.router)
 app.include_router(sessions.value_router)
 app.include_router(sessions.conviction_router)
+app.include_router(diagnostics.router)
 
 
 def _envelope(code: str, message: str, status: int) -> JSONResponse:

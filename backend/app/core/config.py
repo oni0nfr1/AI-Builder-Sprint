@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:5173"
     db_path: str = "./intuition.db"
 
+    # 개발 전용 rPPG A/B 진단. RGB 시계열을 받는 비저장 엔드포인트를 여는 스위치다.
+    # 프로덕션에서 실수로 원자료 수집 경로를 열지 않도록 기본값은 반드시 false다.
+    rppg_diagnostics_enabled: bool = False
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

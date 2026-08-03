@@ -14,6 +14,8 @@ import type {
   Features,
   Report,
   Retrospective,
+  RppgComparisonRequest,
+  RppgComparisonResult,
   Session,
   ValueMap,
 } from '../types/contracts';
@@ -99,3 +101,8 @@ export const fetchValueMap = (): Promise<ValueMap> => request('/value-map');
 
 /** [8] 3층 — 그때 자기 입으로 말한 것과 지금의 만족도를 대조한다. */
 export const fetchConviction = (): Promise<Conviction> => request('/conviction');
+
+/** 개발 전용: RGB를 저장하지 않고 기존 CHROM과 rppg-web 결과를 비교한다. */
+export const compareRppg = (
+  payload: RppgComparisonRequest,
+): Promise<RppgComparisonResult> => post('/diagnostics/rppg/compare', payload);
